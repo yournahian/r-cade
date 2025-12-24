@@ -6,6 +6,7 @@ import {
   Wallet, 
   Search, 
   User, 
+  Users, // Added missing import
   Zap, 
   LayoutGrid, 
   Swords, 
