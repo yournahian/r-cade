@@ -6,7 +6,6 @@ import {
   Wallet, 
   Search, 
   User, 
-  Users, // Added missing import
   Zap, 
   LayoutGrid, 
   Swords, 
@@ -19,7 +18,8 @@ import {
   ChevronRight,
   Crown,
   Medal,
-  ExternalLink
+  ExternalLink,
+  Users
 } from 'lucide-react';
 
 // --- Constants & Mock Data ---
@@ -27,6 +27,18 @@ const GAME_COST = 50;
 
 // Featured Games (Carousel)
 const FEATURED_GAMES = [
+  {
+    id: 999,
+    title: "Zip Zap Puzzle",
+    category: "New Release",
+    players: "1.2k",
+    image: "https://placehold.co/1200x600/3b0764/e8e3d5?text=PLAY+ZIP+ZAP",
+    description: "Connect the RWA circuits in this high-speed logic puzzle. Fix the flow before time runs out!",
+    tags: ["Puzzle", "Logic", "Official"],
+    link: "/zipzap",
+    isExternal: false,
+    cost: 25
+  },
   {
     id: 1,
     title: "Rialo Defender",
@@ -55,6 +67,17 @@ const FEATURED_GAMES = [
 
 // Main Games List (Grid)
 const GAMES = [
+  { 
+    id: 999, 
+    title: "Zip Zap Puzzle", 
+    category: "Logic", 
+    players: "1.2k", 
+    image: "https://placehold.co/400x300/3b0764/e8e3d5?text=Zip+Zap", 
+    payout: "Win $RLO",
+    cost: 25,
+    link: "/zipzap",
+    isExternal: false
+  },
   { 
     id: 1, 
     title: "Rialo Defender", 
@@ -136,7 +159,7 @@ const GAMES = [
 
 const TOP_PLAYERS = [
   { rank: 1, name: "CryptoKing_99", score: "1,250,000", game: "Rialo Defender", avatar: "CK", color: "from-yellow-400 to-orange-500" },
-  { rank: 2, name: "RWA_Whale", score: "980,000", game: "Asset Trader", avatar: "RW", color: "from-gray-300 to-gray-400" },
+  { rank: 2, name: "LogicMaster", score: "50,200", game: "Zip Zap Puzzle", avatar: "LM", color: "from-purple-500 to-pink-500" },
   { rank: 3, name: "SpeedDemon", score: "850,500", game: "KOPPPPP", avatar: "SD", color: "from-orange-700 to-orange-800" },
   { rank: 4, name: "PixelHunter", score: "720,000", game: "Rialo Defender", avatar: "PH", color: "from-blue-500 to-indigo-600" },
 ];
@@ -149,7 +172,7 @@ const ASSETS = [
 ];
 
 const CHALLENGES = [
-  { id: 1, challenger: "CryptoKing_99", game: "Token Chess", stake: 200, mode: "1v1" },
+  { id: 1, challenger: "LogicMaster", game: "Zip Zap Puzzle", stake: 50, mode: "Time Attack" },
   { id: 2, challenger: "RWA_Whale", game: "Rialo Defender", stake: 1000, mode: "High Score" },
   { id: 3, challenger: "SpeedDemon", game: "R-Racers", stake: 500, mode: "Race" },
 ];
@@ -173,7 +196,7 @@ export default function RCade() {
   const [currentFeaturedIndex, setCurrentFeaturedIndex] = useState(0);
   const autoScrollRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Filter Games by Category AND Search Query
+  // Filter Games
   const filteredGames = currentView === 'games' 
     ? GAMES.filter(g => {
         const matchesCategory = activeCategory === "All Games" || g.category === activeCategory;
@@ -219,11 +242,9 @@ export default function RCade() {
       } else {
         if (link !== "#") {
             try {
-                // Use standard navigation. In preview this might catch an error, in prod it works.
                 window.location.href = link;
             } catch (e) {
-                // Fallback for preview environments that block relative path navigation on blobs
-                console.error("Navigation simulated due to preview environment restriction.", e);
+                console.error("Navigation error", e);
                 alert(`Navigating to ${link}`);
             }
         } else {
@@ -597,7 +618,7 @@ export default function RCade() {
                        <span className="text-white font-bold text-sm">{item.user}</span>
                        <span className="text-[10px] bg-green-500/20 text-green-400 px-1 rounded">WON</span>
                     </div>
-                    <p className="text-xs text-gray-500 mt-0.5">minted <span className="text-[#a9ddd3] font-bold">{Math.floor(Math.random()*500)} RLO</span></p>
+                    <p className="text-xs text-gray-500 mt-0.5">minted <span className="text-[#a9ddd3] font-bold">{item.amount} RLO</span></p>
                   </div>
                 </div>
               ))}
