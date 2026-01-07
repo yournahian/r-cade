@@ -4,12 +4,14 @@ import {
   Gamepad2, Trophy, Wallet, Flame, Search, User, Zap, LayoutGrid, Swords, Dice5, 
   TrendingUp, Activity, ShoppingBag, Coins, ArrowRightLeft, Users, Lock, ChevronLeft, 
   ChevronRight, Crown, Medal, ExternalLink, PieChart, History, Check, Loader2, 
-  CreditCard, AlertTriangle, Edit3, PlusCircle
+  CreditCard, AlertTriangle, Edit3, PlusCircle, RefreshCw
 } from 'lucide-react';
-import { ethers } from 'ethers'; 
+// We use dynamic imports for ethers to ensure preview stability
+// import { ethers } from 'ethers'; 
 
 // --- Web3 Config ---
 const TESTNET_CHAIN_ID_HEX = '0x14a34'; // Base Sepolia (84532)
+// ⬇️ REPLACE THIS IF YOU REDEPLOYED
 const CONTRACT_ADDRESS = "0x4F05c8615B50C243B5611aBc883f71d4258E9eb4"; 
 
 // ABI
@@ -23,7 +25,8 @@ const CONTRACT_ABI = [
 
 // --- Constants ---
 const GAME_COST = 50; 
-const ETH_PER_RLO = 0.000004; // 100 RLO = 0.0004 ETH
+// Rate: 100 RLO = 0.0004 ETH -> 1 RLO = 0.000004 ETH
+const ETH_PER_RLO = 0.000004; 
 
 // --- Data ---
 const FEATURED_GAMES = [
@@ -76,6 +79,13 @@ const GAMES = [
   { id: 6, title: "Real Estate Tycoon", category: "Sim", players: "15k", image: "https://placehold.co/400x300/14532d/86efac?text=RE+Tycoon", payout: "x500", cost: 0, link: "#", isExternal: false },
 ];
 
+const TOP_PLAYERS = [
+  { rank: 1, name: "CryptoKing_99", score: "1,250,000", game: "Rialo Defender", avatar: "CK", color: "from-yellow-400 to-orange-500" },
+  { rank: 2, name: "LogicMaster", score: "50,200", game: "Zip Zap Puzzle", avatar: "LM", color: "from-purple-500 to-pink-500" },
+  { rank: 3, name: "SpeedDemon", score: "850,500", game: "KOPPPPP", avatar: "SD", color: "from-orange-700 to-orange-800" },
+  { rank: 4, name: "PixelHunter", score: "720,000", game: "Rialo Defender", avatar: "PH", color: "from-blue-500 to-indigo-600" },
+];
+
 const ASSETS = [
   { id: 1, name: "Gold Plating", type: "Skin", price: 500, image: "https://placehold.co/200x200/d4af37/000?text=Gold+Skin", rarity: "Legendary" },
   { id: 2, name: "Plasma Cannon", type: "Weapon", price: 1200, image: "https://placehold.co/200x200/ef4444/fff?text=Plasma", rarity: "Epic" },
@@ -87,13 +97,6 @@ const CHALLENGES = [
   { id: 1, challenger: "LogicMaster", game: "Zip Zap Puzzle", stake: 50, mode: "Time Attack" },
   { id: 2, challenger: "RWA_Whale", game: "Rialo Defender", stake: 1000, mode: "High Score" },
   { id: 3, challenger: "SpeedDemon", game: "R-Racers", stake: 500, mode: "Race" },
-];
-
-const TOP_PLAYERS = [
-  { rank: 1, name: "CryptoKing_99", score: "1,250,000", game: "Rialo Defender", avatar: "CK", color: "from-yellow-400 to-orange-500" },
-  { rank: 2, name: "LogicMaster", score: "50,200", game: "Zip Zap Puzzle", avatar: "LM", color: "from-purple-500 to-pink-500" },
-  { rank: 3, name: "SpeedDemon", score: "850,500", game: "KOPPPPP", avatar: "SD", color: "from-orange-700 to-orange-800" },
-  { rank: 4, name: "PixelHunter", score: "720,000", game: "Rialo Defender", avatar: "PH", color: "from-blue-500 to-indigo-600" },
 ];
 
 const CATEGORIES = [
@@ -133,7 +136,6 @@ export default function RCade() {
   const [walletError, setWalletError] = useState("");
 
   // Persistent State (Local)
-  const [balance, setBalance] = useState(0); // Initial balance 0
   const [inventory, setInventory] = useState<number[]>([]); 
   const [activityLog, setActivityLog] = useState<ActivityLogItem[]>([]);
   const [showBuyModal, setShowBuyModal] = useState(false);
@@ -150,14 +152,14 @@ export default function RCade() {
 
   // --- Persistence Logic ---
   useEffect(() => {
-    // Inventory & Activity Persistence
+    // Load Inventory & Activity
     const savedInventory = localStorage.getItem('rcade_inventory');
     if (savedInventory) setInventory(JSON.parse(savedInventory));
 
     const savedLog = localStorage.getItem('rcade_activity');
     if (savedLog) setActivityLog(JSON.parse(savedLog));
     
-    // Wallet Persistence
+    // Check wallet connection
     const savedWallet = localStorage.getItem('rcade_wallet_addr');
     if (savedWallet) {
         setWalletConnected(true);
@@ -176,7 +178,7 @@ export default function RCade() {
         }
     }
 
-    // Ticker (Client-Side Only)
+    // Generate Ticker Client Side
     const generatedTicker = [...Array(10)].map((_, i) => ({
         id: i,
         user: `User_${902 + i}`,
@@ -188,8 +190,6 @@ export default function RCade() {
 
   // Recalculate Performance & Net Worth
   useEffect(() => {
-    // 0.0004 ETH per 100 RLO -> 1 RLO = 0.000004 ETH
-    // USD Price approx: 0.000004 * 3000 = $0.012
     const MOCK_USD_PER_RLO = 0.012; 
     
     const assetValueRLO = ASSETS.filter(a => inventory.includes(a.id)).reduce((acc, curr) => acc + curr.price, 0);
@@ -198,17 +198,13 @@ export default function RCade() {
     
     setNetWorth(totalWealthUSD);
     
-    // Performance Algo: Current vs 0 start
+    // Performance Algo: 
     let perf = 0;
     if (totalWealthUSD > 0) {
         perf = parseFloat((totalWealthUSD / 10).toFixed(2));
     }
     setPerformance(perf);
   }, [rloBalance, inventory]);
-
-  const updateBalanceLocal = (newBalance: number) => {
-    setRloBalance(newBalance);
-  };
 
   const addToInventory = (assetId: number) => {
     const newInventory = [...inventory, assetId];
@@ -254,15 +250,20 @@ export default function RCade() {
     }
   };
 
+  // Helper to fetch RLO balance using Ethers (Dynamic)
   const updateRloBalance = async (address: string) => {
       try {
+          const { ethers } = await import('ethers');
           if (typeof window !== 'undefined' && (window as any).ethereum) {
               const provider = new ethers.BrowserProvider((window as any).ethereum);
+              // Read-only call to check balance
               const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
               const rawBalance = await contract.balanceOf(address);
               // Assuming 18 decimals, format properly
               const formatted = ethers.formatUnits(rawBalance, 18);
-              setRloBalance(Math.floor(parseFloat(formatted)));
+              const flooredBalance = Math.floor(parseFloat(formatted));
+              setRloBalance(flooredBalance);
+              console.log("Updated RLO Balance:", flooredBalance);
           }
       } catch (e) {
           console.error("Failed to fetch RLO from contract (Check network)", e);
@@ -279,7 +280,7 @@ export default function RCade() {
             return true;
         } catch (switchError: any) {
             if (switchError.code === 4902) {
-                 alert("Please add Base Sepolia network to your wallet to continue.");
+                 alert("Please add Base Sepolia network to your wallet.");
             }
             console.error(switchError);
             return false;
@@ -303,7 +304,7 @@ export default function RCade() {
                 setWalletAddress(address);
                 localStorage.setItem('rcade_wallet_addr', address);
                 
-                // Load/Init Username
+                // Username logic
                 const savedUser = localStorage.getItem(`rcade_user_${address}`);
                 if (!savedUser) {
                      const randName = `Player_${Math.floor(Math.random() * 10000)}`;
@@ -354,8 +355,9 @@ export default function RCade() {
     if (typeof window !== 'undefined' && (window as any).ethereum) {
         try {
             await switchToBaseSepolia();
+            const { ethers } = await import('ethers');
 
-            // Calculate exact ETH cost using constant
+            // 100 RLO = 0.0004 ETH -> 1 RLO = 0.000004 ETH
             const costETH = (amount * ETH_PER_RLO).toFixed(7);
 
             const provider = new ethers.BrowserProvider((window as any).ethereum);
@@ -373,8 +375,10 @@ export default function RCade() {
 
             alert(`Successfully minted ${amount} RLO!`);
             
+            // Force update balance
             await updateRloBalance(walletAddress);
             await fetchEthBalance(walletAddress); 
+            
             logActivity(`Minted ${amount} RLO`, 'win');
             setShowBuyModal(false);
 
@@ -399,21 +403,23 @@ export default function RCade() {
     }
 
     if (cost > 0) {
+      // Check Real RLO Balance
       if (rloBalance < cost) {
-        alert("Insufficient RLO tokens! Please top up.");
+        alert(`Insufficient RLO tokens! You have ${rloBalance} RLO but need ${cost} RLO.`);
         setShowBuyModal(true);
         return;
       }
 
       setIsProcessing(true);
       try {
+        const { ethers } = await import('ethers');
         const provider = new ethers.BrowserProvider((window as any).ethereum);
         const signer = await provider.getSigner();
         const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
         
         // Burn Tokens Transaction
         const tx = await contract.playGame(ethers.parseUnits(cost.toString(), 18), "Game Fee", {
-             gasLimit: 150000 
+             gasLimit: 150000 // Added gas limit for safety
         });
         console.log("Play Tx:", tx.hash);
         await tx.wait();
@@ -435,7 +441,6 @@ export default function RCade() {
         setIsProcessing(false);
       }
     } else {
-      // Free game
       if (isExternal) window.open(link, '_blank');
       else window.location.href = link;
     }
@@ -451,10 +456,10 @@ export default function RCade() {
         return;
     }
     
-    // For asset purchase, we are burning RLO tokens via the contract
     if (rloBalance >= asset.price) {
         try {
             setIsProcessing(true);
+            const { ethers } = await import('ethers');
             const provider = new ethers.BrowserProvider((window as any).ethereum);
             const signer = await provider.getSigner();
             const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
@@ -517,85 +522,150 @@ export default function RCade() {
 
   // --- Render Functions ---
   const renderGames = () => (
-    <div className="animate-in fade-in zoom-in duration-500">
-      {/* Featured Games Carousel */}
-      <div className="relative mb-16 group">
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-b from-[#a9ddd3]/10 to-transparent border border-white/10 h-96">
-          <img src={FEATURED_GAMES[currentFeaturedIndex].image} className="w-full h-full object-cover" alt={FEATURED_GAMES[currentFeaturedIndex].title} />
-          <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
-          <div className="absolute bottom-0 left-0 right-0 p-8">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-[10px] uppercase font-bold text-[#a9ddd3] bg-[#a9ddd3]/20 px-3 py-1 rounded-full">{FEATURED_GAMES[currentFeaturedIndex].category}</span>
-            </div>
-            <h2 className="text-4xl font-black text-white mb-2">{FEATURED_GAMES[currentFeaturedIndex].title}</h2>
-            <p className="text-gray-300 mb-4">{FEATURED_GAMES[currentFeaturedIndex].description}</p>
-            <button 
-              onClick={() => handlePlayGame(FEATURED_GAMES[currentFeaturedIndex].cost, FEATURED_GAMES[currentFeaturedIndex].link, FEATURED_GAMES[currentFeaturedIndex].isExternal)}
-              className="bg-[#a9ddd3] text-black font-bold px-6 py-2 rounded-lg hover:bg-white transition-colors flex items-center gap-2"
-            >
-              <Gamepad2 className="w-4 h-4" /> PLAY NOW
-            </button>
-          </div>
-        </div>
-        <button onClick={() => handleManualScroll('left')} className="absolute left-4 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/80 text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><ChevronLeft className="w-6 h-6" /></button>
-        <button onClick={() => handleManualScroll('right')} className="absolute right-4 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/80 text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="w-6 h-6" /></button>
-      </div>
-
-      {/* Categories */}
-      <div className="flex gap-3 mb-8 overflow-x-auto pb-2">
+    <div>
+      {/* Category Filter */}
+      <div className="flex gap-4 mb-8 overflow-x-auto pb-2">
         {CATEGORIES.map((cat) => (
-          <button 
+          <button
             key={cat.name}
             onClick={() => setActiveCategory(cat.name)}
-            className={`whitespace-nowrap flex items-center gap-2 px-4 py-2 rounded-full font-bold text-sm uppercase transition-all ${activeCategory === cat.name ? 'bg-[#a9ddd3] text-black' : 'bg-[#111] text-gray-400 hover:text-white border border-white/10'}`}
+            className={`flex items-center gap-2 px-6 py-2 rounded-full font-bold text-sm whitespace-nowrap transition-all ${
+              activeCategory === cat.name
+                ? 'bg-[#a9ddd3] text-black'
+                : 'bg-[#111] text-gray-400 hover:text-white border border-white/5'
+            }`}
           >
-            <cat.icon className="w-4 h-4" /> {cat.name}
+            <cat.icon className="w-4 h-4" />
+            {cat.name}
           </button>
         ))}
       </div>
 
-      {/* Games Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {filteredGames.map((game) => (
-          <div key={game.id} className="group bg-[#0a0a0a] border border-white/5 rounded-xl overflow-hidden hover:border-[#a9ddd3] transition-all hover:shadow-lg hover:shadow-[#a9ddd3]/10 cursor-pointer" onClick={() => handlePlayGame(game.cost, game.link, game.isExternal)}>
-            <div className="relative h-40 overflow-hidden bg-[#111]">
-              <img src={game.image} className="w-full h-full object-cover group-hover:scale-110 transition-transform" alt={game.title} />
-              {game.cost > 0 && <div className="absolute top-2 right-2 bg-[#a9ddd3] text-black font-bold text-xs px-2 py-1 rounded">{game.cost} RLO</div>}
-            </div>
-            <div className="p-4">
-              <h3 className="font-bold text-white mb-1">{game.title}</h3>
-              <p className="text-xs text-gray-500 mb-3">{game.category}</p>
-              <div className="flex items-center justify-between text-xs text-gray-400">
-                <span className="flex items-center gap-1"><Users className="w-3 h-3" /> {game.players}</span>
-                <span className="text-[#a9ddd3]">{game.payout}</span>
+      {/* Featured Carousel */}
+      <div className="relative mb-12 group" onMouseEnter={stopAutoScroll} onMouseLeave={startAutoScroll}>
+        <div className="relative h-96 rounded-xl overflow-hidden border border-white/10">
+          {FEATURED_GAMES.map((game, i) => (
+            <div
+              key={game.id}
+              className={`absolute inset-0 transition-opacity duration-500 ${
+                i === currentFeaturedIndex ? 'opacity-100' : 'opacity-0'
+              }`}
+            >
+              <img src={game.image} alt={game.title} className="w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
+              <div className="absolute bottom-0 left-0 right-0 p-8">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xs bg-[#a9ddd3] text-black px-3 py-1 rounded-full font-bold uppercase">
+                    {game.category}
+                  </span>
+                </div>
+                <h3 className="text-4xl font-black italic text-white mb-2">{game.title}</h3>
+                <p className="text-gray-300 max-w-2xl mb-4">{game.description}</p>
+                <button
+                  onClick={() => handlePlayGame(game.cost, game.link, game.isExternal)}
+                  disabled={isProcessing}
+                  className="bg-[#a9ddd3] text-black font-bold px-8 py-3 rounded-lg hover:scale-105 transition-transform disabled:opacity-50"
+                >
+                  {game.cost > 0 ? `Play (${game.cost} RLO)` : 'Play Free'}
+                </button>
               </div>
             </div>
+          ))}
+
+          {/* Carousel Controls */}
+          <button
+            onClick={() => handleManualScroll('left')}
+            className="absolute left-4 top-1/2 -translate-y-1/2 z-10 bg-black/50 hover:bg-black/80 p-2 rounded-full transition-all opacity-0 group-hover:opacity-100"
+          >
+            <ChevronLeft className="w-6 h-6 text-white" />
+          </button>
+          <button
+            onClick={() => handleManualScroll('right')}
+            className="absolute right-4 top-1/2 -translate-y-1/2 z-10 bg-black/50 hover:bg-black/80 p-2 rounded-full transition-all opacity-0 group-hover:opacity-100"
+          >
+            <ChevronRight className="w-6 h-6 text-white" />
+          </button>
+
+          {/* Carousel Indicators */}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-10">
+            {FEATURED_GAMES.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => {
+                  stopAutoScroll();
+                  setCurrentFeaturedIndex(i);
+                  setTimeout(startAutoScroll, 5000);
+                }}
+                className={`w-2 h-2 rounded-full transition-all ${
+                  i === currentFeaturedIndex ? 'bg-[#a9ddd3] w-8' : 'bg-white/30 hover:bg-white/50'
+                }`}
+              />
+            ))}
           </div>
-        ))}
+        </div>
+      </div>
+
+      {/* Games Grid */}
+      <div className="mb-12">
+        <h2 className="text-2xl font-black italic tracking-tighter text-white mb-6">
+          {activeCategory} <span className="text-[#a9ddd3]">GAMES</span>
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {filteredGames.map((game) => (
+            <div
+              key={game.id}
+              className="group relative bg-[#111] rounded-xl overflow-hidden border border-white/5 hover:border-[#a9ddd3] transition-all cursor-pointer hover:scale-105"
+            >
+              <img src={game.image} alt={game.title} className="w-full h-40 object-cover" />
+              <div className="p-4">
+                <h3 className="font-bold text-white mb-1">{game.title}</h3>
+                <div className="flex items-center gap-2 text-xs text-gray-400 mb-3">
+                  <Users className="w-3 h-3" />
+                  {game.players}
+                </div>
+                <button
+                  onClick={() => handlePlayGame(game.cost, game.link, game.isExternal)}
+                  disabled={isProcessing}
+                  className="w-full bg-[#a9ddd3] text-black font-bold py-2 rounded-lg hover:bg-[#e8e3d5] transition-colors disabled:opacity-50 text-sm"
+                >
+                  {game.cost > 0 ? `Play (${game.cost} RLO)` : 'Free'}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
 
   const renderMarketplace = () => (
-    <div className="animate-in fade-in zoom-in duration-500">
-      <h2 className="text-3xl font-black text-white mb-8 flex items-center gap-2"><ShoppingBag className="w-8 h-8 text-[#a9ddd3]" /> MARKETPLACE</h2>
+    <div>
+      <h2 className="text-2xl font-black italic tracking-tighter text-white mb-6">
+        ASSET <span className="text-[#a9ddd3]">MARKETPLACE</span>
+      </h2>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {filteredAssets.map((asset) => (
-          <div key={asset.id} className="bg-[#0a0a0a] border border-white/5 rounded-xl overflow-hidden hover:border-[#a9ddd3] transition-all group">
-            <div className="h-40 bg-[#111] flex items-center justify-center overflow-hidden">
-              <img src={asset.image} className="w-full h-full object-contain group-hover:scale-110 transition-transform" alt={asset.name} />
-            </div>
+          <div
+            key={asset.id}
+            className="bg-[#111] rounded-xl border border-white/5 hover:border-[#a9ddd3] overflow-hidden transition-all group hover:scale-105"
+          >
+            <img src={asset.image} alt={asset.name} className="w-full h-40 object-cover" />
             <div className="p-4">
-              <h3 className="font-bold text-white mb-1">{asset.name}</h3>
-              <p className="text-xs text-[#a9ddd3] font-bold mb-3">{asset.rarity}</p>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-bold text-white">{asset.name}</h3>
+                <span className="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-1 rounded font-bold uppercase">
+                  {asset.rarity}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 mb-3">{asset.type}</p>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-white">{asset.price} RLO</span>
-                <button 
+                <span className="font-bold text-[#a9ddd3]">{asset.price} RLO</span>
+                <button
                   onClick={() => handlePurchaseAsset(asset)}
                   disabled={isProcessing || inventory.includes(asset.id)}
-                  className="bg-[#a9ddd3] hover:bg-white disabled:opacity-50 text-black font-bold text-xs px-3 py-1 rounded transition-colors"
+                  className="bg-[#a9ddd3] text-black font-bold px-3 py-1 rounded text-xs hover:scale-105 transition-transform disabled:opacity-50"
                 >
-                  {inventory.includes(asset.id) ? '✓ Owned' : 'Buy'}
+                  {inventory.includes(asset.id) ? 'Owned' : 'Buy'}
                 </button>
               </div>
             </div>
@@ -606,26 +676,89 @@ export default function RCade() {
   );
 
   const renderBetting = () => (
-    <div className="animate-in fade-in zoom-in duration-500 max-w-4xl mx-auto">
-      <h2 className="text-3xl font-black text-white mb-8 flex items-center gap-2"><Swords className="w-8 h-8 text-[#a9ddd3]" /> CHALLENGES</h2>
+    <div>
+      <h2 className="text-2xl font-black italic tracking-tighter text-white mb-6">
+        ACTIVE <span className="text-[#a9ddd3]">CHALLENGES</span>
+      </h2>
       <div className="space-y-4">
         {CHALLENGES.map((challenge) => (
-          <div key={challenge.id} className="bg-[#0a0a0a] border border-white/5 hover:border-[#a9ddd3] rounded-xl p-6 transition-all">
+          <div key={challenge.id} className="bg-[#111] rounded-xl border border-white/5 p-6 hover:border-[#a9ddd3] transition-colors">
             <div className="flex items-center justify-between">
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <h3 className="font-black text-white text-lg">{challenge.challenger}</h3>
-                  <span className="text-[10px] bg-[#a9ddd3]/20 text-[#a9ddd3] px-2 py-1 rounded">{challenge.mode}</span>
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-lg bg-[#a9ddd3]/10 flex items-center justify-center text-[#a9ddd3]">
+                  <Swords className="w-6 h-6" />
                 </div>
-                <p className="text-gray-500 text-sm">{challenge.game}</p>
+                <div>
+                  <h3 className="font-bold text-white">{challenge.challenger}</h3>
+                  <p className="text-xs text-gray-500">{challenge.game} • {challenge.mode}</p>
+                </div>
               </div>
               <div className="text-right">
-                <p className="text-2xl font-black text-white">{challenge.stake} RLO</p>
-                <button className="mt-2 bg-[#a9ddd3] text-black font-bold text-sm px-4 py-2 rounded-lg hover:bg-white transition-colors">Accept</button>
+                <p className="text-[#a9ddd3] font-bold">{challenge.stake} RLO</p>
+                <button className="mt-2 bg-[#a9ddd3] text-black font-bold px-6 py-2 rounded-lg hover:scale-105 transition-transform text-sm">
+                  Accept
+                </button>
               </div>
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+
+  const renderAccount = () => (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="lg:col-span-2">
+        <h2 className="text-2xl font-black italic tracking-tighter text-white mb-6">
+          ACTIVITY <span className="text-[#a9ddd3]">LOG</span>
+        </h2>
+        <div className="space-y-2 max-h-96 overflow-y-auto">
+          {activityLog.map((item) => (
+            <div key={item.id} className="bg-[#111] rounded-lg p-4 border border-white/5 flex items-center justify-between text-sm">
+              <div className="flex items-center gap-3">
+                {item.type === 'win' && <Trophy className="w-4 h-4 text-yellow-500" />}
+                {item.type === 'loss' && <AlertTriangle className="w-4 h-4 text-red-500" />}
+                {item.type === 'purchase' && <ShoppingBag className="w-4 h-4 text-blue-500" />}
+                {item.type === 'play' && <Gamepad2 className="w-4 h-4 text-purple-500" />}
+                {item.type === 'system' && <Zap className="w-4 h-4 text-cyan-500" />}
+                <span className="text-white">{item.text}</span>
+              </div>
+              <span className="text-gray-500 text-xs">{item.time}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="space-y-4">
+        <div className="bg-[#111] rounded-xl border border-white/5 p-6">
+          <h3 className="text-sm font-bold text-gray-500 uppercase mb-4">Wallet Info</h3>
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs text-gray-600 mb-1">ADDRESS</p>
+              <p className="text-xs font-mono text-[#a9ddd3] break-all">{walletAddress || 'Not Connected'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-600 mb-1">ETH BALANCE</p>
+              <p className="text-lg font-bold text-white">{ethBalance} ETH</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-600 mb-1">RLO BALANCE</p>
+              <p className="text-lg font-bold text-[#a9ddd3]">{rloBalance.toLocaleString()} RLO</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-[#111] rounded-xl border border-white/5 p-6">
+          <h3 className="text-sm font-bold text-gray-500 uppercase mb-4">Stats</h3>
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs text-gray-600 mb-1">NET WORTH</p>
+              <p className="text-lg font-bold text-white">${netWorth.toFixed(2)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-600 mb-1">PERFORMANCE</p>
+              <p className="text-lg font-bold text-green-400">{performance.toFixed(2)}%</p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -682,7 +815,16 @@ export default function RCade() {
               </div>
             </div>
             {walletConnected && (
-                <div onClick={() => setShowBuyModal(true)} className="bg-[#a9ddd3] rounded-full w-8 h-8 flex items-center justify-center text-black font-bold text-lg cursor-pointer hover:scale-110 transition-transform">+</div>
+                <div className="flex items-center gap-2">
+                    <button 
+                        onClick={() => updateRloBalance(walletAddress)}
+                        className="bg-[#111] rounded-full w-8 h-8 flex items-center justify-center text-[#a9ddd3] hover:text-white transition-colors"
+                        title="Refresh Balance"
+                    >
+                        <RefreshCw className="w-4 h-4" />
+                    </button>
+                    <div onClick={() => setShowBuyModal(true)} className="bg-[#a9ddd3] rounded-full w-8 h-8 flex items-center justify-center text-black font-bold text-lg cursor-pointer hover:scale-110 transition-transform">+</div>
+                </div>
             )}
           </div>
         </div>
@@ -694,78 +836,7 @@ export default function RCade() {
         {currentView === 'games' && renderGames()}
         {currentView === 'market' && renderMarketplace()}
         {currentView === 'betting' && renderBetting()}
-        {currentView === 'account' && (
-            <div className="animate-in fade-in zoom-in duration-500 max-w-4xl mx-auto">
-              <div className="bg-[#111] border border-white/10 rounded-3xl p-8 mb-8">
-                <div className="flex items-center gap-6 mb-8">
-                  <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-[#a9ddd3] to-[#e8e3d5] flex items-center justify-center text-black shadow-2xl shadow-[#a9ddd3]/20 relative">
-                    <User className="w-12 h-12" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-3">
-                        <h2 className="text-3xl font-black text-white">{username}</h2>
-                        <button onClick={() => setShowUsernameModal(true)} className="text-gray-500 hover:text-white"><Edit3 className="w-4 h-4" /></button>
-                    </div>
-                    <p className="text-gray-400">Level 0 • R-CADE Member</p>
-                    {walletConnected && <p className="text-xs text-[#a9ddd3] font-mono mt-1">{walletAddress}</p>}
-                  </div>
-                  <div className="ml-auto text-right">
-                    <p className="text-sm text-gray-500 uppercase font-bold">Total Net Worth</p>
-                    <h3 className="text-4xl font-black text-[#e8e3d5]">${netWorth.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</h3>
-                    <p className="text-xs text-[#a9ddd3]">≈ {rloBalance.toLocaleString()} RLO</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                  <div className="bg-[#0a0a0a] p-4 rounded-xl border border-white/5 relative">
-                    <p className="text-gray-500 text-xs uppercase font-bold mb-1">Liquid Funds</p>
-                    <p className="text-2xl font-bold text-white">{rloBalance.toLocaleString()} <span className="text-sm text-[#a9ddd3]">RLO</span></p>
-                    {walletConnected && (
-                      <p className="text-xs text-green-400 mt-1 flex items-center gap-1">
-                        <Coins className="w-3 h-3" /> {ethBalance} ETH
-                      </p>
-                    )}
-                    <button 
-                        onClick={() => setShowBuyModal(true)} 
-                        className="absolute top-4 right-4 bg-[#a9ddd3] hover:bg-white text-black font-bold text-xs px-3 py-1 rounded-lg flex items-center gap-1 transition-colors"
-                    >
-                        <PlusCircle className="w-3 h-3" /> TOP UP
-                    </button>
-                  </div>
-                  <div className="bg-[#0a0a0a] p-4 rounded-xl border border-white/5">
-                    <p className="text-gray-500 text-xs uppercase font-bold mb-1">Asset Value</p>
-                    <p className="text-2xl font-bold text-white">
-                        {ASSETS.filter(a => inventory.includes(a.id)).length} <span className="text-sm text-[#a9ddd3]">Items</span>
-                    </p>
-                  </div>
-                  <div className="bg-[#0a0a0a] p-4 rounded-xl border border-white/5">
-                    <p className="text-gray-500 text-xs uppercase font-bold mb-1">Performance</p>
-                    <p className={`text-2xl font-bold ${performance >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {performance >= 0 ? '+' : ''}{performance}%
-                    </p>
-                    <p className="text-xs text-gray-600 mt-1">All Time</p>
-                  </div>
-                </div>
-
-                <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2"><PieChart className="w-5 h-5 text-[#a9ddd3]" /> My Assets</h3>
-                {inventory.length > 0 ? (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                    {ASSETS.filter(a => inventory.includes(a.id)).map((asset) => (
-                        <div key={asset.id} className="flex items-center gap-3 bg-[#0a0a0a] p-3 rounded-xl border border-white/5 hover:border-[#a9ddd3]/30 transition-colors">
-                        <img src={asset.image} className="w-12 h-12 object-contain bg-[#111] rounded-lg p-1" alt={asset.name} />
-                        <div>
-                            <p className="font-bold text-sm text-white">{asset.name}</p>
-                            <p className="text-xs text-gray-500">{asset.type} • {asset.rarity}</p>
-                        </div>
-                        </div>
-                    ))}
-                    </div>
-                ) : (
-                    <div className="text-gray-500 italic mb-8 p-4 bg-[#0a0a0a] rounded-xl border border-white/5 text-center">No assets purchased yet. Visit the Market!</div>
-                )}
-              </div>
-            </div>
-        )}
+        {currentView === 'account' && renderAccount()}
 
         {/* --- Live Ticker --- */}
         <div className="mt-24 border-t border-white/5 pt-8 overflow-hidden relative">
@@ -878,7 +949,7 @@ export default function RCade() {
                       <span className="text-[10px] uppercase text-gray-500 font-bold">{opt.label} Pack</span>
                     </div>
                     <div className="bg-[#a9ddd3] text-black font-black px-4 py-2 rounded-lg text-sm group-hover:scale-105 transition-transform flex items-center gap-1">
-                      {/* Cost is calculated at 0.000004 ETH per RLO */}
+                      {/* Cost is calculated at 0.0001 ETH per RLO (e.g. 100 RLO = 0.01 ETH) */}
                       <CreditCard className="w-3 h-3" /> {(opt.amount * ETH_PER_RLO).toFixed(4)} ETH
                     </div>
                   </button>
