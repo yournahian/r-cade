@@ -515,6 +515,121 @@ export default function RCade() {
     ? ASSETS.filter(a => a.name.toLowerCase().includes(searchQuery.toLowerCase()))
     : [];
 
+  // --- Render Functions ---
+  const renderGames = () => (
+    <div className="animate-in fade-in zoom-in duration-500">
+      {/* Featured Games Carousel */}
+      <div className="relative mb-16 group">
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-b from-[#a9ddd3]/10 to-transparent border border-white/10 h-96">
+          <img src={FEATURED_GAMES[currentFeaturedIndex].image} className="w-full h-full object-cover" alt={FEATURED_GAMES[currentFeaturedIndex].title} />
+          <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
+          <div className="absolute bottom-0 left-0 right-0 p-8">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-[10px] uppercase font-bold text-[#a9ddd3] bg-[#a9ddd3]/20 px-3 py-1 rounded-full">{FEATURED_GAMES[currentFeaturedIndex].category}</span>
+            </div>
+            <h2 className="text-4xl font-black text-white mb-2">{FEATURED_GAMES[currentFeaturedIndex].title}</h2>
+            <p className="text-gray-300 mb-4">{FEATURED_GAMES[currentFeaturedIndex].description}</p>
+            <button 
+              onClick={() => handlePlayGame(FEATURED_GAMES[currentFeaturedIndex].cost, FEATURED_GAMES[currentFeaturedIndex].link, FEATURED_GAMES[currentFeaturedIndex].isExternal)}
+              className="bg-[#a9ddd3] text-black font-bold px-6 py-2 rounded-lg hover:bg-white transition-colors flex items-center gap-2"
+            >
+              <Gamepad2 className="w-4 h-4" /> PLAY NOW
+            </button>
+          </div>
+        </div>
+        <button onClick={() => handleManualScroll('left')} className="absolute left-4 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/80 text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><ChevronLeft className="w-6 h-6" /></button>
+        <button onClick={() => handleManualScroll('right')} className="absolute right-4 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/80 text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="w-6 h-6" /></button>
+      </div>
+
+      {/* Categories */}
+      <div className="flex gap-3 mb-8 overflow-x-auto pb-2">
+        {CATEGORIES.map((cat) => (
+          <button 
+            key={cat.name}
+            onClick={() => setActiveCategory(cat.name)}
+            className={`whitespace-nowrap flex items-center gap-2 px-4 py-2 rounded-full font-bold text-sm uppercase transition-all ${activeCategory === cat.name ? 'bg-[#a9ddd3] text-black' : 'bg-[#111] text-gray-400 hover:text-white border border-white/10'}`}
+          >
+            <cat.icon className="w-4 h-4" /> {cat.name}
+          </button>
+        ))}
+      </div>
+
+      {/* Games Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {filteredGames.map((game) => (
+          <div key={game.id} className="group bg-[#0a0a0a] border border-white/5 rounded-xl overflow-hidden hover:border-[#a9ddd3] transition-all hover:shadow-lg hover:shadow-[#a9ddd3]/10 cursor-pointer" onClick={() => handlePlayGame(game.cost, game.link, game.isExternal)}>
+            <div className="relative h-40 overflow-hidden bg-[#111]">
+              <img src={game.image} className="w-full h-full object-cover group-hover:scale-110 transition-transform" alt={game.title} />
+              {game.cost > 0 && <div className="absolute top-2 right-2 bg-[#a9ddd3] text-black font-bold text-xs px-2 py-1 rounded">{game.cost} RLO</div>}
+            </div>
+            <div className="p-4">
+              <h3 className="font-bold text-white mb-1">{game.title}</h3>
+              <p className="text-xs text-gray-500 mb-3">{game.category}</p>
+              <div className="flex items-center justify-between text-xs text-gray-400">
+                <span className="flex items-center gap-1"><Users className="w-3 h-3" /> {game.players}</span>
+                <span className="text-[#a9ddd3]">{game.payout}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderMarketplace = () => (
+    <div className="animate-in fade-in zoom-in duration-500">
+      <h2 className="text-3xl font-black text-white mb-8 flex items-center gap-2"><ShoppingBag className="w-8 h-8 text-[#a9ddd3]" /> MARKETPLACE</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {filteredAssets.map((asset) => (
+          <div key={asset.id} className="bg-[#0a0a0a] border border-white/5 rounded-xl overflow-hidden hover:border-[#a9ddd3] transition-all group">
+            <div className="h-40 bg-[#111] flex items-center justify-center overflow-hidden">
+              <img src={asset.image} className="w-full h-full object-contain group-hover:scale-110 transition-transform" alt={asset.name} />
+            </div>
+            <div className="p-4">
+              <h3 className="font-bold text-white mb-1">{asset.name}</h3>
+              <p className="text-xs text-[#a9ddd3] font-bold mb-3">{asset.rarity}</p>
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-bold text-white">{asset.price} RLO</span>
+                <button 
+                  onClick={() => handlePurchaseAsset(asset)}
+                  disabled={isProcessing || inventory.includes(asset.id)}
+                  className="bg-[#a9ddd3] hover:bg-white disabled:opacity-50 text-black font-bold text-xs px-3 py-1 rounded transition-colors"
+                >
+                  {inventory.includes(asset.id) ? '✓ Owned' : 'Buy'}
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderBetting = () => (
+    <div className="animate-in fade-in zoom-in duration-500 max-w-4xl mx-auto">
+      <h2 className="text-3xl font-black text-white mb-8 flex items-center gap-2"><Swords className="w-8 h-8 text-[#a9ddd3]" /> CHALLENGES</h2>
+      <div className="space-y-4">
+        {CHALLENGES.map((challenge) => (
+          <div key={challenge.id} className="bg-[#0a0a0a] border border-white/5 hover:border-[#a9ddd3] rounded-xl p-6 transition-all">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <h3 className="font-black text-white text-lg">{challenge.challenger}</h3>
+                  <span className="text-[10px] bg-[#a9ddd3]/20 text-[#a9ddd3] px-2 py-1 rounded">{challenge.mode}</span>
+                </div>
+                <p className="text-gray-500 text-sm">{challenge.game}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-2xl font-black text-white">{challenge.stake} RLO</p>
+                <button className="mt-2 bg-[#a9ddd3] text-black font-bold text-sm px-4 py-2 rounded-lg hover:bg-white transition-colors">Accept</button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-[#a9ddd3] selection:text-black overflow-x-hidden">
       
@@ -755,7 +870,7 @@ export default function RCade() {
                 ].map((opt) => (
                   <button 
                     key={opt.amount}
-                    onClick={() => handleBuyTokens(opt.amount, opt.amount)}
+                    onClick={() => handleBuyTokens(opt.amount)}
                     className="w-full flex items-center justify-between bg-[#0a0a0a] hover:bg-[#222] border border-white/5 hover:border-[#a9ddd3] p-4 rounded-xl transition-all group"
                   >
                     <div className="flex flex-col items-start">
