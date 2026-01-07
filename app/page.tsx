@@ -6,14 +6,13 @@ import {
   ChevronRight, Crown, Medal, ExternalLink, PieChart, History, Check, Loader2, 
   CreditCard, AlertTriangle, Edit3, PlusCircle
 } from 'lucide-react';
-import { ethers } from 'ethers'; 
+// ethers import removed to prevent build errors. It is now loaded dynamically inside functions.
 
 // --- Web3 Config ---
 const TESTNET_CHAIN_ID_HEX = '0x14a34'; // Base Sepolia (84532)
-// Your Deployed RialoToken Contract Address
 const CONTRACT_ADDRESS = "0x4F05c8615B50C243B5611aBc883f71d4258E9eb4"; 
 
-// ABI to interact with RialoToken.sol
+// ABI
 const CONTRACT_ABI = [
   "function balanceOf(address owner) view returns (uint256)",
   "function buyTokens() payable",
@@ -22,11 +21,11 @@ const CONTRACT_ABI = [
   "event GamePlayed(address indexed player, uint256 cost, string gameId)"
 ];
 
-// --- Constants & Mock Data ---
+// --- Constants ---
 const GAME_COST = 50; 
-const EXCHANGE_RATE = 0.10; // 1 RLO = $0.10
-const ETH_PER_RLO = 0.000004; // Exchange rate: 1 RLO = 0.000004 ETH
+const ETH_PER_RLO = 0.000004; // 100 RLO = 0.0004 ETH
 
+// --- Data ---
 const FEATURED_GAMES = [
   {
     id: 999,
@@ -142,7 +141,7 @@ export default function RCade() {
 
   // Stats
   const [performance, setPerformance] = useState(0);
-  const [netWorth, setNetWorth] = useState(0); // New State for Net Worth
+  const [netWorth, setNetWorth] = useState(0);
 
   // Carousel & Ticker State
   const [currentFeaturedIndex, setCurrentFeaturedIndex] = useState(0);
@@ -157,7 +156,7 @@ export default function RCade() {
     const savedLog = localStorage.getItem('rcade_activity');
     if (savedLog) setActivityLog(JSON.parse(savedLog));
     
-    // Check wallet connection
+    // Check wallet connection from localStorage
     const savedWallet = localStorage.getItem('rcade_wallet_addr');
     if (savedWallet) {
         setWalletConnected(true);
@@ -174,12 +173,14 @@ export default function RCade() {
             setUsername(randName);
             localStorage.setItem(`rcade_user_${savedWallet}`, randName);
         }
-    } else {
-        // No wallet connected, use local storage balance for guest/demo feel if any
-        const savedBalance = localStorage.getItem('rcade_balance');
-        if (savedBalance) setRloBalance(parseInt(savedBalance, 10));
-        else setRloBalance(0);
     }
+
+    // Load Local Data
+    const savedInventoryLocal = localStorage.getItem('rcade_inventory');
+    if (savedInventoryLocal) setInventory(JSON.parse(savedInventoryLocal));
+
+    const savedLogLocal = localStorage.getItem('rcade_activity');
+    if (savedLogLocal) setActivityLog(JSON.parse(savedLogLocal));
 
     // Generate Ticker Client Side
     const generatedTicker = [...Array(10)].map((_, i) => ({
@@ -193,23 +194,18 @@ export default function RCade() {
 
   // Recalculate Performance & Net Worth
   useEffect(() => {
-    // Calculate total value of owned assets in RLO
+    // 0.0004 ETH per 100 RLO -> ~ $1.20 USD per 100 RLO (Mock valuation)
+    const MOCK_USD_PER_RLO = 0.012; 
+    
     const assetValueRLO = ASSETS.filter(a => inventory.includes(a.id)).reduce((acc, curr) => acc + curr.price, 0);
-    
-    // Total Wealth in RLO (Liquid + Assets)
     const totalWealthRLO = rloBalance + assetValueRLO;
+    const totalWealthUSD = totalWealthRLO * MOCK_USD_PER_RLO;
     
-    // Convert to USD for Net Worth Display
-    const totalWealthUSD = totalWealthRLO * EXCHANGE_RATE;
     setNetWorth(totalWealthUSD);
     
-    // Performance Algo: Simple % growth based on current holdings vs 'Zero' start
-    // If wealth > 0, we show positive performance.
-    // For a real metric, we'd need to track "Total Deposited" vs "Current Value".
-    // Here we just show a growth metric based on total wealth scaling.
+    // Performance Algo: Current vs 0 start
     let perf = 0;
     if (totalWealthUSD > 0) {
-        // Arbitrary performance calc: 1% per $10 of value for demo effect
         perf = parseFloat((totalWealthUSD / 10).toFixed(2));
     }
     setPerformance(perf);
@@ -248,7 +244,7 @@ export default function RCade() {
     }
   };
 
-  // --- Real Web3 Logic (Native) ---
+  // --- Real Web3 Logic ---
   const fetchEthBalance = async (address: string) => {
     if (typeof window !== 'undefined' && (window as any).ethereum) {
         try {
@@ -265,19 +261,19 @@ export default function RCade() {
   };
 
   const updateRloBalance = async (address: string) => {
-      // Try to load ethers dynamically
+      // Direct contract call using Ethers (Dynamically imported)
       try {
           const { ethers } = await import('ethers');
           if (typeof window !== 'undefined' && (window as any).ethereum) {
               const provider = new ethers.BrowserProvider((window as any).ethereum);
               const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
               const rawBalance = await contract.balanceOf(address);
+              // Assuming 18 decimals
               const formatted = ethers.formatUnits(rawBalance, 18);
               setRloBalance(Math.floor(parseFloat(formatted)));
           }
       } catch (e) {
-          // Fallback if Ethers fails or contract unconnected
-          console.error("Ethers load or contract call failed", e);
+          console.error("Failed to fetch RLO from contract (Ethers missing or contract issue)", e);
       }
   };
 
@@ -315,7 +311,7 @@ export default function RCade() {
                 setWalletAddress(address);
                 localStorage.setItem('rcade_wallet_addr', address);
                 
-                // Username logic
+                // Set username
                 const savedUser = localStorage.getItem(`rcade_user_${address}`);
                 if (!savedUser) {
                      const randName = `Player_${Math.floor(Math.random() * 10000)}`;
@@ -386,8 +382,8 @@ export default function RCade() {
         setIsProcessing(false);
 
       } catch (error) {
-        console.error("Game Transaction failed (fallback to sim for demo)", error);
-        // Fallback for preview
+        console.error("Game Transaction failed (fallback to sim for demo if local)", error);
+        // Fallback for preview only
         setTimeout(() => {
             updateBalance(rloBalance - cost);
             logActivity(`Played Game (Sim)`, 'play');
@@ -402,7 +398,7 @@ export default function RCade() {
     }
   };
 
-  const handlePurchaseAsset = (asset: typeof ASSETS[0]) => {
+  const handlePurchaseAsset = async (asset: typeof ASSETS[0]) => {
     if (!walletConnected) {
         setShowConnectModal(true);
         return;
@@ -413,28 +409,27 @@ export default function RCade() {
     }
     
     if (rloBalance >= asset.price) {
-        (async () => {
-            try {
-                setIsProcessing(true);
-                const { ethers } = await import('ethers');
-                const provider = new ethers.BrowserProvider((window as any).ethereum);
-                const signer = await provider.getSigner();
-                const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-                
-                const tx = await contract.playGame(ethers.parseUnits(asset.price.toString(), 18), `Asset: ${asset.name}`);
-                await tx.wait();
+        setIsProcessing(true);
+        try {
+            const { ethers } = await import('ethers');
+            const provider = new ethers.BrowserProvider((window as any).ethereum);
+            const signer = await provider.getSigner();
+            const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+            
+            // Burn Tokens for Asset
+            const tx = await contract.playGame(ethers.parseUnits(asset.price.toString(), 18), `Asset: ${asset.name}`);
+            await tx.wait();
 
-                addToInventory(asset.id);
-                await updateRloBalance(walletAddress);
-                logActivity(`Purchased ${asset.name}`, 'purchase');
-                alert(`Successfully purchased ${asset.name}!`);
-            } catch (e) {
-                console.error(e);
-                alert("Purchase Transaction Failed (Check RLO Balance)");
-            } finally {
-                setIsProcessing(false);
-            }
-        })();
+            addToInventory(asset.id);
+            await updateRloBalance(walletAddress);
+            logActivity(`Purchased ${asset.name}`, 'purchase');
+            alert(`Successfully purchased ${asset.name}!`);
+        } catch (e) {
+            console.error(e);
+            alert("Purchase Transaction Failed");
+        } finally {
+            setIsProcessing(false);
+        }
     } else {
         alert("Insufficient RLO Balance");
         setShowBuyModal(true);
@@ -768,7 +763,6 @@ export default function RCade() {
           </div>
           <div className="ml-auto text-right">
             <p className="text-sm text-gray-500 uppercase font-bold">Total Net Worth</p>
-            {/* Dynamic Net Worth Calculation */}
             <h3 className="text-4xl font-black text-[#e8e3d5]">${netWorth.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</h3>
             <p className="text-xs text-[#a9ddd3]">≈ {rloBalance.toLocaleString()} RLO + Assets</p>
           </div>
@@ -861,7 +855,7 @@ export default function RCade() {
               <span className="text-black font-black text-2xl">R</span>
               </div>
               <div className="h-1 w-3 bg-[#e8e3d5] mx-1 rounded-full"></div>
-              <span className="text-3xl font-black tracking-tighter text-white italic">CADE</span>
+              <span className="text-3xl font-black tracking-tighter text-white italic">CADE <span className="text-xs text-[#a9ddd3] ml-1 not-italic border border-[#a9ddd3] px-1 rounded">v1.2</span></span>
           </div>
 
           <div className="hidden md:flex gap-8">
@@ -1006,9 +1000,9 @@ export default function RCade() {
             {!isProcessing && (
               <div className="space-y-3">
                 {[
-                  { amount: 100, cost: 5, label: "Starter" },
-                  { amount: 500, cost: 20, label: "Popular" },
-                  { amount: 1500, cost: 50, label: "Whale" },
+                  { amount: 100, label: "Starter" },
+                  { amount: 500, label: "Popular" },
+                  { amount: 1500, label: "Whale" },
                 ].map((opt) => (
                   <button 
                     key={opt.amount}
