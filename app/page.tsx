@@ -152,14 +152,14 @@ export default function RCade() {
 
   // --- Persistence Logic ---
   useEffect(() => {
-    // Load Inventory & Activity
+    // Inventory & Activity Persistence
     const savedInventory = localStorage.getItem('rcade_inventory');
     if (savedInventory) setInventory(JSON.parse(savedInventory));
 
     const savedLog = localStorage.getItem('rcade_activity');
     if (savedLog) setActivityLog(JSON.parse(savedLog));
     
-    // Check wallet connection
+    // Wallet Persistence
     const savedWallet = localStorage.getItem('rcade_wallet_addr');
     if (savedWallet) {
         setWalletConnected(true);
@@ -178,7 +178,7 @@ export default function RCade() {
         }
     }
 
-    // Generate Ticker Client Side
+    // Ticker (Client-Side Only)
     const generatedTicker = [...Array(10)].map((_, i) => ({
         id: i,
         user: `User_${902 + i}`,
@@ -250,24 +250,23 @@ export default function RCade() {
     }
   };
 
-  // Helper to fetch RLO balance using Ethers (Dynamic)
   const updateRloBalance = async (address: string) => {
       try {
           const { ethers } = await import('ethers');
           if (typeof window !== 'undefined' && (window as any).ethereum) {
               const provider = new ethers.BrowserProvider((window as any).ethereum);
-              // Read-only call to check balance
               const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
               const rawBalance = await contract.balanceOf(address);
               // Assuming 18 decimals, format properly
               const formatted = ethers.formatUnits(rawBalance, 18);
-              const flooredBalance = Math.floor(parseFloat(formatted));
-              setRloBalance(flooredBalance);
-              console.log("Updated RLO Balance:", flooredBalance);
+              const val = Math.floor(parseFloat(formatted));
+              setRloBalance(val);
+              return val;
           }
       } catch (e) {
           console.error("Failed to fetch RLO from contract (Check network)", e);
       }
+      return 0;
   };
 
   const switchToBaseSepolia = async () => {
@@ -304,7 +303,7 @@ export default function RCade() {
                 setWalletAddress(address);
                 localStorage.setItem('rcade_wallet_addr', address);
                 
-                // Username logic
+                // Load/Init Username
                 const savedUser = localStorage.getItem(`rcade_user_${address}`);
                 if (!savedUser) {
                      const randName = `Player_${Math.floor(Math.random() * 10000)}`;
@@ -357,14 +356,12 @@ export default function RCade() {
             await switchToBaseSepolia();
             const { ethers } = await import('ethers');
 
-            // 100 RLO = 0.0004 ETH -> 1 RLO = 0.000004 ETH
             const costETH = (amount * ETH_PER_RLO).toFixed(7);
-
             const provider = new ethers.BrowserProvider((window as any).ethereum);
             const signer = await provider.getSigner();
             const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
 
-            // Send Transaction with GAS LIMIT explicit setting to avoid estimation errors
+            // Send Transaction
             const tx = await contract.buyTokens({ 
                 value: ethers.parseEther(costETH),
                 gasLimit: 300000 
@@ -373,17 +370,34 @@ export default function RCade() {
             
             await tx.wait(); // Wait for confirmation
 
-            alert(`Successfully minted ${amount} RLO!`);
+            alert(`Transaction Confirmed! Polling for balance update...`);
             
-            // Force update balance
-            await updateRloBalance(walletAddress);
-            await fetchEthBalance(walletAddress); 
+            // Poll for update
+            let attempts = 0;
+            const maxAttempts = 5;
+            const currentBal = rloBalance;
             
-            logActivity(`Minted ${amount} RLO`, 'win');
-            setShowBuyModal(false);
+            const pollInterval = setInterval(async () => {
+                attempts++;
+                const newBal = await updateRloBalance(walletAddress);
+                await fetchEthBalance(walletAddress);
+                
+                if (newBal !== undefined && newBal > currentBal) {
+                    clearInterval(pollInterval);
+                    logActivity(`Minted ${amount} RLO`, 'win');
+                    setIsProcessing(false);
+                    setShowBuyModal(false);
+                } else if (attempts >= maxAttempts) {
+                    clearInterval(pollInterval);
+                    setIsProcessing(false);
+                    setShowBuyModal(false);
+                    // Even if polling stops, user can click refresh
+                }
+            }, 3000);
 
         } catch (error: any) {
             console.error(error);
+            setIsProcessing(false);
             if (error.code === 4001 || error?.info?.error?.code === 4001) {
                 alert("Transaction rejected.");
             } else {
@@ -392,8 +406,8 @@ export default function RCade() {
         }
     } else {
         alert("Wallet not found.");
+        setIsProcessing(false);
     }
-    setIsProcessing(false);
   };
 
   const handlePlayGame = async (cost: number, link: string, isExternal: boolean) => {
@@ -403,9 +417,8 @@ export default function RCade() {
     }
 
     if (cost > 0) {
-      // Check Real RLO Balance
       if (rloBalance < cost) {
-        alert(`Insufficient RLO tokens! You have ${rloBalance} RLO but need ${cost} RLO.`);
+        alert("Insufficient RLO tokens! Please top up.");
         setShowBuyModal(true);
         return;
       }
@@ -417,9 +430,8 @@ export default function RCade() {
         const signer = await provider.getSigner();
         const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
         
-        // Burn Tokens Transaction
         const tx = await contract.playGame(ethers.parseUnits(cost.toString(), 18), "Game Fee", {
-             gasLimit: 150000 // Added gas limit for safety
+             gasLimit: 150000 
         });
         console.log("Play Tx:", tx.hash);
         await tx.wait();
@@ -464,7 +476,6 @@ export default function RCade() {
             const signer = await provider.getSigner();
             const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
             
-            // Burning the asset price amount
             const tx = await contract.playGame(ethers.parseUnits(asset.price.toString(), 18), `Asset: ${asset.name}`, {
                 gasLimit: 150000
             });
@@ -519,249 +530,6 @@ export default function RCade() {
   const filteredAssets = currentView === 'market'
     ? ASSETS.filter(a => a.name.toLowerCase().includes(searchQuery.toLowerCase()))
     : [];
-
-  // --- Render Functions ---
-  const renderGames = () => (
-    <div>
-      {/* Category Filter */}
-      <div className="flex gap-4 mb-8 overflow-x-auto pb-2">
-        {CATEGORIES.map((cat) => (
-          <button
-            key={cat.name}
-            onClick={() => setActiveCategory(cat.name)}
-            className={`flex items-center gap-2 px-6 py-2 rounded-full font-bold text-sm whitespace-nowrap transition-all ${
-              activeCategory === cat.name
-                ? 'bg-[#a9ddd3] text-black'
-                : 'bg-[#111] text-gray-400 hover:text-white border border-white/5'
-            }`}
-          >
-            <cat.icon className="w-4 h-4" />
-            {cat.name}
-          </button>
-        ))}
-      </div>
-
-      {/* Featured Carousel */}
-      <div className="relative mb-12 group" onMouseEnter={stopAutoScroll} onMouseLeave={startAutoScroll}>
-        <div className="relative h-96 rounded-xl overflow-hidden border border-white/10">
-          {FEATURED_GAMES.map((game, i) => (
-            <div
-              key={game.id}
-              className={`absolute inset-0 transition-opacity duration-500 ${
-                i === currentFeaturedIndex ? 'opacity-100' : 'opacity-0'
-              }`}
-            >
-              <img src={game.image} alt={game.title} className="w-full h-full object-cover" />
-              <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
-              <div className="absolute bottom-0 left-0 right-0 p-8">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xs bg-[#a9ddd3] text-black px-3 py-1 rounded-full font-bold uppercase">
-                    {game.category}
-                  </span>
-                </div>
-                <h3 className="text-4xl font-black italic text-white mb-2">{game.title}</h3>
-                <p className="text-gray-300 max-w-2xl mb-4">{game.description}</p>
-                <button
-                  onClick={() => handlePlayGame(game.cost, game.link, game.isExternal)}
-                  disabled={isProcessing}
-                  className="bg-[#a9ddd3] text-black font-bold px-8 py-3 rounded-lg hover:scale-105 transition-transform disabled:opacity-50"
-                >
-                  {game.cost > 0 ? `Play (${game.cost} RLO)` : 'Play Free'}
-                </button>
-              </div>
-            </div>
-          ))}
-
-          {/* Carousel Controls */}
-          <button
-            onClick={() => handleManualScroll('left')}
-            className="absolute left-4 top-1/2 -translate-y-1/2 z-10 bg-black/50 hover:bg-black/80 p-2 rounded-full transition-all opacity-0 group-hover:opacity-100"
-          >
-            <ChevronLeft className="w-6 h-6 text-white" />
-          </button>
-          <button
-            onClick={() => handleManualScroll('right')}
-            className="absolute right-4 top-1/2 -translate-y-1/2 z-10 bg-black/50 hover:bg-black/80 p-2 rounded-full transition-all opacity-0 group-hover:opacity-100"
-          >
-            <ChevronRight className="w-6 h-6 text-white" />
-          </button>
-
-          {/* Carousel Indicators */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-10">
-            {FEATURED_GAMES.map((_, i) => (
-              <button
-                key={i}
-                onClick={() => {
-                  stopAutoScroll();
-                  setCurrentFeaturedIndex(i);
-                  setTimeout(startAutoScroll, 5000);
-                }}
-                className={`w-2 h-2 rounded-full transition-all ${
-                  i === currentFeaturedIndex ? 'bg-[#a9ddd3] w-8' : 'bg-white/30 hover:bg-white/50'
-                }`}
-              />
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Games Grid */}
-      <div className="mb-12">
-        <h2 className="text-2xl font-black italic tracking-tighter text-white mb-6">
-          {activeCategory} <span className="text-[#a9ddd3]">GAMES</span>
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {filteredGames.map((game) => (
-            <div
-              key={game.id}
-              className="group relative bg-[#111] rounded-xl overflow-hidden border border-white/5 hover:border-[#a9ddd3] transition-all cursor-pointer hover:scale-105"
-            >
-              <img src={game.image} alt={game.title} className="w-full h-40 object-cover" />
-              <div className="p-4">
-                <h3 className="font-bold text-white mb-1">{game.title}</h3>
-                <div className="flex items-center gap-2 text-xs text-gray-400 mb-3">
-                  <Users className="w-3 h-3" />
-                  {game.players}
-                </div>
-                <button
-                  onClick={() => handlePlayGame(game.cost, game.link, game.isExternal)}
-                  disabled={isProcessing}
-                  className="w-full bg-[#a9ddd3] text-black font-bold py-2 rounded-lg hover:bg-[#e8e3d5] transition-colors disabled:opacity-50 text-sm"
-                >
-                  {game.cost > 0 ? `Play (${game.cost} RLO)` : 'Free'}
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderMarketplace = () => (
-    <div>
-      <h2 className="text-2xl font-black italic tracking-tighter text-white mb-6">
-        ASSET <span className="text-[#a9ddd3]">MARKETPLACE</span>
-      </h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {filteredAssets.map((asset) => (
-          <div
-            key={asset.id}
-            className="bg-[#111] rounded-xl border border-white/5 hover:border-[#a9ddd3] overflow-hidden transition-all group hover:scale-105"
-          >
-            <img src={asset.image} alt={asset.name} className="w-full h-40 object-cover" />
-            <div className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-bold text-white">{asset.name}</h3>
-                <span className="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-1 rounded font-bold uppercase">
-                  {asset.rarity}
-                </span>
-              </div>
-              <p className="text-xs text-gray-500 mb-3">{asset.type}</p>
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-[#a9ddd3]">{asset.price} RLO</span>
-                <button
-                  onClick={() => handlePurchaseAsset(asset)}
-                  disabled={isProcessing || inventory.includes(asset.id)}
-                  className="bg-[#a9ddd3] text-black font-bold px-3 py-1 rounded text-xs hover:scale-105 transition-transform disabled:opacity-50"
-                >
-                  {inventory.includes(asset.id) ? 'Owned' : 'Buy'}
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-
-  const renderBetting = () => (
-    <div>
-      <h2 className="text-2xl font-black italic tracking-tighter text-white mb-6">
-        ACTIVE <span className="text-[#a9ddd3]">CHALLENGES</span>
-      </h2>
-      <div className="space-y-4">
-        {CHALLENGES.map((challenge) => (
-          <div key={challenge.id} className="bg-[#111] rounded-xl border border-white/5 p-6 hover:border-[#a9ddd3] transition-colors">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-lg bg-[#a9ddd3]/10 flex items-center justify-center text-[#a9ddd3]">
-                  <Swords className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-white">{challenge.challenger}</h3>
-                  <p className="text-xs text-gray-500">{challenge.game} • {challenge.mode}</p>
-                </div>
-              </div>
-              <div className="text-right">
-                <p className="text-[#a9ddd3] font-bold">{challenge.stake} RLO</p>
-                <button className="mt-2 bg-[#a9ddd3] text-black font-bold px-6 py-2 rounded-lg hover:scale-105 transition-transform text-sm">
-                  Accept
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-
-  const renderAccount = () => (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-      <div className="lg:col-span-2">
-        <h2 className="text-2xl font-black italic tracking-tighter text-white mb-6">
-          ACTIVITY <span className="text-[#a9ddd3]">LOG</span>
-        </h2>
-        <div className="space-y-2 max-h-96 overflow-y-auto">
-          {activityLog.map((item) => (
-            <div key={item.id} className="bg-[#111] rounded-lg p-4 border border-white/5 flex items-center justify-between text-sm">
-              <div className="flex items-center gap-3">
-                {item.type === 'win' && <Trophy className="w-4 h-4 text-yellow-500" />}
-                {item.type === 'loss' && <AlertTriangle className="w-4 h-4 text-red-500" />}
-                {item.type === 'purchase' && <ShoppingBag className="w-4 h-4 text-blue-500" />}
-                {item.type === 'play' && <Gamepad2 className="w-4 h-4 text-purple-500" />}
-                {item.type === 'system' && <Zap className="w-4 h-4 text-cyan-500" />}
-                <span className="text-white">{item.text}</span>
-              </div>
-              <span className="text-gray-500 text-xs">{item.time}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="space-y-4">
-        <div className="bg-[#111] rounded-xl border border-white/5 p-6">
-          <h3 className="text-sm font-bold text-gray-500 uppercase mb-4">Wallet Info</h3>
-          <div className="space-y-3">
-            <div>
-              <p className="text-xs text-gray-600 mb-1">ADDRESS</p>
-              <p className="text-xs font-mono text-[#a9ddd3] break-all">{walletAddress || 'Not Connected'}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-600 mb-1">ETH BALANCE</p>
-              <p className="text-lg font-bold text-white">{ethBalance} ETH</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-600 mb-1">RLO BALANCE</p>
-              <p className="text-lg font-bold text-[#a9ddd3]">{rloBalance.toLocaleString()} RLO</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-[#111] rounded-xl border border-white/5 p-6">
-          <h3 className="text-sm font-bold text-gray-500 uppercase mb-4">Stats</h3>
-          <div className="space-y-3">
-            <div>
-              <p className="text-xs text-gray-600 mb-1">NET WORTH</p>
-              <p className="text-lg font-bold text-white">${netWorth.toFixed(2)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-600 mb-1">PERFORMANCE</p>
-              <p className="text-lg font-bold text-green-400">{performance.toFixed(2)}%</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
 
   return (
     <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-[#a9ddd3] selection:text-black overflow-x-hidden">
@@ -941,7 +709,7 @@ export default function RCade() {
                 ].map((opt) => (
                   <button 
                     key={opt.amount}
-                    onClick={() => handleBuyTokens(opt.amount)}
+                    onClick={() => handleBuyTokens(opt.amount, opt.amount)}
                     className="w-full flex items-center justify-between bg-[#0a0a0a] hover:bg-[#222] border border-white/5 hover:border-[#a9ddd3] p-4 rounded-xl transition-all group"
                   >
                     <div className="flex flex-col items-start">
@@ -949,7 +717,7 @@ export default function RCade() {
                       <span className="text-[10px] uppercase text-gray-500 font-bold">{opt.label} Pack</span>
                     </div>
                     <div className="bg-[#a9ddd3] text-black font-black px-4 py-2 rounded-lg text-sm group-hover:scale-105 transition-transform flex items-center gap-1">
-                      {/* Cost is calculated at 0.0001 ETH per RLO (e.g. 100 RLO = 0.01 ETH) */}
+                      {/* Cost is calculated at 0.000004 ETH per RLO */}
                       <CreditCard className="w-3 h-3" /> {(opt.amount * ETH_PER_RLO).toFixed(4)} ETH
                     </div>
                   </button>
