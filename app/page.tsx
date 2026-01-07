@@ -6,7 +6,7 @@ import {
   ChevronRight, Crown, Medal, ExternalLink, PieChart, History, Check, Loader2, 
   CreditCard, AlertTriangle, Edit3, PlusCircle
 } from 'lucide-react';
-// ethers import removed to prevent build errors. It is now loaded dynamically inside functions.
+import { ethers } from 'ethers'; 
 
 // --- Web3 Config ---
 const TESTNET_CHAIN_ID_HEX = '0x14a34'; // Base Sepolia (84532)
@@ -133,7 +133,7 @@ export default function RCade() {
   const [walletError, setWalletError] = useState("");
 
   // Persistent State (Local)
-  const [balance, setBalance] = useState(0); // UPDATED: Initial balance 0
+  const [balance, setBalance] = useState(0); // Initial balance 0
   const [inventory, setInventory] = useState<number[]>([]); 
   const [activityLog, setActivityLog] = useState<ActivityLogItem[]>([]);
   const [showBuyModal, setShowBuyModal] = useState(false);
@@ -150,13 +150,14 @@ export default function RCade() {
 
   // --- Persistence Logic ---
   useEffect(() => {
+    // Inventory & Activity Persistence
     const savedInventory = localStorage.getItem('rcade_inventory');
     if (savedInventory) setInventory(JSON.parse(savedInventory));
 
     const savedLog = localStorage.getItem('rcade_activity');
     if (savedLog) setActivityLog(JSON.parse(savedLog));
     
-    // Check wallet connection from localStorage
+    // Wallet Persistence
     const savedWallet = localStorage.getItem('rcade_wallet_addr');
     if (savedWallet) {
         setWalletConnected(true);
@@ -175,14 +176,7 @@ export default function RCade() {
         }
     }
 
-    // Load Local Data
-    const savedInventoryLocal = localStorage.getItem('rcade_inventory');
-    if (savedInventoryLocal) setInventory(JSON.parse(savedInventoryLocal));
-
-    const savedLogLocal = localStorage.getItem('rcade_activity');
-    if (savedLogLocal) setActivityLog(JSON.parse(savedLogLocal));
-
-    // Generate Ticker Client Side
+    // Ticker (Client-Side Only)
     const generatedTicker = [...Array(10)].map((_, i) => ({
         id: i,
         user: `User_${902 + i}`,
@@ -194,7 +188,8 @@ export default function RCade() {
 
   // Recalculate Performance & Net Worth
   useEffect(() => {
-    // 0.0004 ETH per 100 RLO -> ~ $1.20 USD per 100 RLO (Mock valuation)
+    // 0.0004 ETH per 100 RLO -> 1 RLO = 0.000004 ETH
+    // USD Price approx: 0.000004 * 3000 = $0.012
     const MOCK_USD_PER_RLO = 0.012; 
     
     const assetValueRLO = ASSETS.filter(a => inventory.includes(a.id)).reduce((acc, curr) => acc + curr.price, 0);
@@ -211,9 +206,8 @@ export default function RCade() {
     setPerformance(perf);
   }, [rloBalance, inventory]);
 
-  const updateBalance = (newBalance: number) => {
+  const updateBalanceLocal = (newBalance: number) => {
     setRloBalance(newBalance);
-    localStorage.setItem('rcade_balance', newBalance.toString());
   };
 
   const addToInventory = (assetId: number) => {
@@ -261,19 +255,17 @@ export default function RCade() {
   };
 
   const updateRloBalance = async (address: string) => {
-      // Direct contract call using Ethers (Dynamically imported)
       try {
-          const { ethers } = await import('ethers');
           if (typeof window !== 'undefined' && (window as any).ethereum) {
               const provider = new ethers.BrowserProvider((window as any).ethereum);
               const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
               const rawBalance = await contract.balanceOf(address);
-              // Assuming 18 decimals
+              // Assuming 18 decimals, format properly
               const formatted = ethers.formatUnits(rawBalance, 18);
               setRloBalance(Math.floor(parseFloat(formatted)));
           }
       } catch (e) {
-          console.error("Failed to fetch RLO from contract (Ethers missing or contract issue)", e);
+          console.error("Failed to fetch RLO from contract (Check network)", e);
       }
   };
 
@@ -287,7 +279,7 @@ export default function RCade() {
             return true;
         } catch (switchError: any) {
             if (switchError.code === 4902) {
-                 alert("Please add Base Sepolia network to your wallet.");
+                 alert("Please add Base Sepolia network to your wallet to continue.");
             }
             console.error(switchError);
             return false;
@@ -311,7 +303,7 @@ export default function RCade() {
                 setWalletAddress(address);
                 localStorage.setItem('rcade_wallet_addr', address);
                 
-                // Set username
+                // Load/Init Username
                 const savedUser = localStorage.getItem(`rcade_user_${address}`);
                 if (!savedUser) {
                      const randName = `Player_${Math.floor(Math.random() * 10000)}`;
@@ -349,6 +341,57 @@ export default function RCade() {
   };
 
   // --- Interactions ---
+  
+  const handleBuyTokens = async (amount: number) => {
+    if (!walletConnected) {
+        setShowBuyModal(false);
+        setShowConnectModal(true);
+        return;
+    }
+
+    setIsProcessing(true);
+
+    if (typeof window !== 'undefined' && (window as any).ethereum) {
+        try {
+            await switchToBaseSepolia();
+
+            // Calculate exact ETH cost using constant
+            const costETH = (amount * ETH_PER_RLO).toFixed(7);
+
+            const provider = new ethers.BrowserProvider((window as any).ethereum);
+            const signer = await provider.getSigner();
+            const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+
+            // Send Transaction with GAS LIMIT explicit setting to avoid estimation errors
+            const tx = await contract.buyTokens({ 
+                value: ethers.parseEther(costETH),
+                gasLimit: 300000 
+            });
+            console.log("Mint Tx:", tx.hash);
+            
+            await tx.wait(); // Wait for confirmation
+
+            alert(`Successfully minted ${amount} RLO!`);
+            
+            await updateRloBalance(walletAddress);
+            await fetchEthBalance(walletAddress); 
+            logActivity(`Minted ${amount} RLO`, 'win');
+            setShowBuyModal(false);
+
+        } catch (error: any) {
+            console.error(error);
+            if (error.code === 4001 || error?.info?.error?.code === 4001) {
+                alert("Transaction rejected.");
+            } else {
+                alert(`Transaction Failed: ${error.reason || "Check Balance & Network"}`);
+            }
+        }
+    } else {
+        alert("Wallet not found.");
+    }
+    setIsProcessing(false);
+  };
+
   const handlePlayGame = async (cost: number, link: string, isExternal: boolean) => {
     if (!walletConnected && cost > 0) {
       setShowConnectModal(true);
@@ -364,35 +407,35 @@ export default function RCade() {
 
       setIsProcessing(true);
       try {
-        const { ethers } = await import('ethers');
         const provider = new ethers.BrowserProvider((window as any).ethereum);
         const signer = await provider.getSigner();
         const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
         
-        // Real Burn
-        const tx = await contract.playGame(ethers.parseUnits(cost.toString(), 18), "Game Fee");
+        // Burn Tokens Transaction
+        const tx = await contract.playGame(ethers.parseUnits(cost.toString(), 18), "Game Fee", {
+             gasLimit: 150000 
+        });
+        console.log("Play Tx:", tx.hash);
         await tx.wait();
         
-        updateRloBalance(walletAddress); 
+        await updateRloBalance(walletAddress); 
         logActivity(`Played Game`, 'play');
         
         if (isExternal) window.open(link, '_blank');
         else window.location.href = link;
         
+      } catch (error: any) {
+        console.error("Game Transaction failed", error);
+        if (error.code === 4001 || error?.info?.error?.code === 4001) {
+             alert("Play transaction cancelled.");
+        } else {
+             alert("Transaction failed. Check balance & network.");
+        }
+      } finally {
         setIsProcessing(false);
-
-      } catch (error) {
-        console.error("Game Transaction failed (fallback to sim for demo if local)", error);
-        // Fallback for preview only
-        setTimeout(() => {
-            updateBalance(rloBalance - cost);
-            logActivity(`Played Game (Sim)`, 'play');
-            if (isExternal) window.open(link, '_blank');
-            else window.location.href = link;
-            setIsProcessing(false);
-        }, 1000);
       }
     } else {
+      // Free game
       if (isExternal) window.open(link, '_blank');
       else window.location.href = link;
     }
@@ -408,16 +451,18 @@ export default function RCade() {
         return;
     }
     
+    // For asset purchase, we are burning RLO tokens via the contract
     if (rloBalance >= asset.price) {
-        setIsProcessing(true);
         try {
-            const { ethers } = await import('ethers');
+            setIsProcessing(true);
             const provider = new ethers.BrowserProvider((window as any).ethereum);
             const signer = await provider.getSigner();
             const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
             
-            // Burn Tokens for Asset
-            const tx = await contract.playGame(ethers.parseUnits(asset.price.toString(), 18), `Asset: ${asset.name}`);
+            // Burning the asset price amount
+            const tx = await contract.playGame(ethers.parseUnits(asset.price.toString(), 18), `Asset: ${asset.name}`, {
+                gasLimit: 150000
+            });
             await tx.wait();
 
             addToInventory(asset.id);
@@ -434,44 +479,6 @@ export default function RCade() {
         alert("Insufficient RLO Balance");
         setShowBuyModal(true);
     }
-  };
-
-  const handleBuyTokens = async (amount: number, costETH: number) => {
-    if (!walletConnected) {
-        setShowBuyModal(false);
-        setShowConnectModal(true);
-        return;
-    }
-
-    setIsProcessing(true);
-
-    if (typeof window !== 'undefined' && (window as any).ethereum) {
-        try {
-            await switchToBaseSepolia();
-            const { ethers } = await import('ethers');
-            
-            const provider = new ethers.BrowserProvider((window as any).ethereum);
-            const signer = await provider.getSigner();
-            const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-
-            const tx = await contract.buyTokens({ value: ethers.parseEther(costETH.toString()) });
-            console.log("Mint Tx:", tx.hash);
-            await tx.wait(); // Wait for confirmation on chain
-
-            alert(`Successfully minted ${amount} RLO!`);
-            await updateRloBalance(walletAddress);
-            await fetchEthBalance(walletAddress); 
-            logActivity(`Minted ${amount} RLO`, 'win');
-            setShowBuyModal(false);
-
-        } catch (error: any) {
-            console.error(error);
-            alert("Transaction failed or rejected.");
-        }
-    } else {
-        alert("Wallet not found.");
-    }
-    setIsProcessing(false);
   };
 
   // --- UI Helpers ---
@@ -507,335 +514,6 @@ export default function RCade() {
   const filteredAssets = currentView === 'market'
     ? ASSETS.filter(a => a.name.toLowerCase().includes(searchQuery.toLowerCase()))
     : [];
-
-  // --- Render Sections ---
-
-  const renderGames = () => (
-    <>
-      {/* Featured Carousel */}
-      <div className="relative w-full h-[500px] rounded-[2rem] overflow-hidden mb-12 group border border-white/10 shadow-2xl shadow-black">
-        {FEATURED_GAMES.map((game, index) => (
-          <div 
-            key={game.id}
-            className={`absolute inset-0 transition-opacity duration-700 ease-in-out ${index === currentFeaturedIndex ? 'opacity-100 z-10' : 'opacity-0 z-0'}`}
-          >
-            <img src={game.image} alt={game.title} className="w-full h-full object-cover" />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-[#050505]/50 to-transparent flex flex-col justify-end p-12">
-              <div className="flex items-center gap-3 mb-4">
-                 <span className="flex items-center gap-1 px-3 py-1 bg-[#a9ddd3] text-black text-[10px] font-black rounded-full uppercase tracking-widest"><Zap className="w-3 h-3 fill-black" /> {game.category}</span>
-                 {game.cost > 0 && <span className="text-[#a9ddd3] text-xs font-mono font-bold tracking-widest uppercase"> Cost: {game.cost} RLO</span>}
-              </div>
-              <h1 className="text-5xl md:text-8xl font-black mb-4 text-white italic tracking-tighter uppercase">{game.title}</h1>
-              <p className="text-gray-400 max-w-2xl text-lg mb-8 font-medium leading-relaxed">{game.description}</p>
-              <div className="flex gap-4">
-                <button 
-                  onClick={() => handlePlayGame(game.cost, game.link, game.isExternal)} 
-                  className="bg-[#e8e3d5] hover:bg-white text-black px-10 py-5 rounded-2xl font-black text-lg flex items-center gap-3 transition-all transform hover:scale-105 shadow-[0_0_30px_rgba(232,227,213,0.3)]"
-                >
-                    {game.isExternal ? <ExternalLink className="w-6 h-6" /> : <Gamepad2 className="w-6 h-6" />}
-                    {game.cost > 0 ? `PLAY FOR ${game.cost} RLO` : 'PLAY NOW'}
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
-
-        <button onClick={(e) => { e.stopPropagation(); handleManualScroll('left'); }} className="absolute left-4 top-1/2 -translate-y-1/2 z-20 bg-black/50 hover:bg-black/80 p-3 rounded-full text-white backdrop-blur-sm border border-white/10 transition-all hover:scale-110">
-          <ChevronLeft className="w-8 h-8" />
-        </button>
-        <button onClick={(e) => { e.stopPropagation(); handleManualScroll('right'); }} className="absolute right-4 top-1/2 -translate-y-1/2 z-20 bg-black/50 hover:bg-black/80 p-3 rounded-full text-white backdrop-blur-sm border border-white/10 transition-all hover:scale-110">
-          <ChevronRight className="w-8 h-8" />
-        </button>
-
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 flex gap-2">
-          {FEATURED_GAMES.map((_, idx) => (
-            <div key={idx} className={`w-2 h-2 rounded-full transition-all ${idx === currentFeaturedIndex ? 'bg-[#a9ddd3] w-6' : 'bg-white/30'}`} />
-          ))}
-        </div>
-      </div>
-
-      {/* Main Grid */}
-      <div className="flex flex-col lg:flex-row gap-12">
-        <div className="flex-1">
-          <div className="flex items-center gap-2 overflow-x-auto pb-2 mb-8 no-scrollbar">
-            {CATEGORIES.map((cat) => (
-              <button key={cat.name} onClick={() => setActiveCategory(cat.name)} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold whitespace-nowrap transition-all border ${activeCategory === cat.name ? "bg-[#1a1a1a] text-[#e8e3d5] border-[#e8e3d5]" : "bg-transparent text-gray-500 border-transparent hover:text-white hover:bg-[#111]"}`}>
-                <cat.icon className="w-4 h-4" /> {cat.name}
-              </button>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredGames.length > 0 ? filteredGames.map((game) => (
-              <div key={game.id} className="group bg-[#0a0a0a] rounded-3xl overflow-hidden border border-white/5 hover:border-[#a9ddd3] hover:shadow-[0_0_40px_rgba(169,221,211,0.15)] transition-all duration-300 cursor-pointer relative">
-                <div className="relative h-48 overflow-hidden">
-                  <div className="absolute top-4 left-4 bg-black/90 backdrop-blur px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wide text-[#a9ddd3] flex items-center gap-1 z-10 border border-[#a9ddd3]/20 shadow-lg">
-                    <Activity className="w-3 h-3" /> {game.players}
-                  </div>
-                  <img src={game.image} alt={game.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
-                  <div className="absolute inset-0 bg-[#a9ddd3]/90 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center backdrop-blur-sm">
-                    <button onClick={() => handlePlayGame(game.cost, game.link, game.isExternal)} className="flex flex-col items-center gap-2 transform translate-y-4 group-hover:translate-y-0 transition-transform duration-300">
-                      {game.cost > 0 ? <Lock className="w-8 h-8 text-black mb-1" /> : <Gamepad2 className="w-8 h-8 text-black mb-1" />}
-                      <span className="text-black font-black text-lg tracking-tighter">{game.cost > 0 ? `PAY ${game.cost} RLO` : 'PLAY NOW'}</span>
-                    </button>
-                  </div>
-                </div>
-                <div className="p-6">
-                  <h3 className="text-xl font-bold text-white group-hover:text-[#a9ddd3] transition-colors">{game.title}</h3>
-                  <p className="text-xs font-bold text-gray-600 uppercase tracking-widest mb-4">{game.category}</p>
-                  <div className="flex items-center justify-between text-sm bg-[#111] p-3 rounded-lg border border-white/5">
-                    <span className="text-gray-400 text-xs">Potential Win</span>
-                    <span className="text-[#a9ddd3] font-bold font-mono">{game.payout}</span>
-                  </div>
-                </div>
-              </div>
-            )) : (
-              <div className="col-span-full py-12 text-center text-gray-500 italic">No games found matching "{searchQuery}"</div>
-            )}
-          </div>
-        </div>
-
-        {/* Top Players */}
-        <div className="w-full lg:w-80 flex-shrink-0">
-          <div className="bg-[#111] rounded-3xl p-6 border border-white/5 sticky top-24">
-            <div className="flex items-center gap-2 mb-6">
-              <Crown className="w-6 h-6 text-yellow-500" />
-              <h3 className="text-xl font-black italic text-white tracking-wide">TOP PLAYERS</h3>
-            </div>
-            <div className="space-y-4">
-              {TOP_PLAYERS.map((player) => (
-                <div key={player.rank} className="flex items-center gap-4 group cursor-pointer hover:bg-[#1a1a1a] p-2 rounded-xl transition-colors">
-                  <div className="relative">
-                    <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${player.color} flex items-center justify-center text-white font-bold text-sm shadow-lg`}>{player.avatar}</div>
-                    <div className="absolute -top-1 -right-1 w-5 h-5 bg-black rounded-full border border-white/10 flex items-center justify-center">
-                      <span className={`text-[10px] font-bold ${player.rank === 1 ? 'text-yellow-500' : 'text-gray-400'}`}>#{player.rank}</span>
-                    </div>
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="font-bold text-sm text-white group-hover:text-[#a9ddd3] transition-colors">{player.name}</h4>
-                    <p className="text-xs text-gray-500">{player.game}</p>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-[#a9ddd3] font-mono font-bold text-xs">{player.score}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    </>
-  );
-
-  const renderMarketplace = () => (
-    <div className="animate-in fade-in zoom-in duration-500">
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h2 className="text-4xl font-black text-white italic">ASSET <span className="text-[#e8e3d5]">MARKET</span></h2>
-          <p className="text-gray-400">Trade skins, weapons, and upgrades.</p>
-        </div>
-        <div className="flex gap-2">
-          <button className="px-4 py-2 bg-[#111] rounded-lg text-sm text-gray-400 hover:text-white border border-white/5">Skins</button>
-          <button className="px-4 py-2 bg-[#111] rounded-lg text-sm text-gray-400 hover:text-white border border-white/5">Weapons</button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        {filteredAssets.length > 0 ? filteredAssets.map((asset) => {
-          const isOwned = inventory.includes(asset.id);
-          return (
-            <div key={asset.id} className={`bg-[#0a0a0a] rounded-2xl border ${isOwned ? 'border-[#a9ddd3]/50' : 'border-white/5'} overflow-hidden hover:border-[#e8e3d5] transition-colors group relative`}>
-              {isOwned && <div className="absolute top-2 left-2 bg-[#a9ddd3] text-black text-[10px] font-bold px-2 py-1 rounded z-10 flex items-center gap-1"><Check className="w-3 h-3" /> OWNED</div>}
-              <div className="h-48 bg-[#111] flex items-center justify-center p-4 relative">
-                <span className={`absolute top-3 right-3 px-2 py-1 text-[10px] font-bold uppercase rounded ${asset.rarity === 'Legendary' ? 'bg-yellow-500/20 text-yellow-500' : 'bg-blue-500/20 text-blue-500'}`}>
-                  {asset.rarity}
-                </span>
-                <img src={asset.image} className="h-full object-contain drop-shadow-2xl group-hover:scale-110 transition-transform duration-500" alt={asset.name} />
-              </div>
-              <div className="p-5">
-                <h3 className="font-bold text-lg mb-1">{asset.name}</h3>
-                <p className="text-xs text-gray-500 uppercase font-bold mb-4">{asset.type}</p>
-                <div className="flex items-center justify-between">
-                  <span className="text-[#e8e3d5] font-black text-xl">{asset.price} RLO</span>
-                  <button 
-                    onClick={() => handlePurchaseAsset(asset)} 
-                    disabled={isOwned}
-                    className={`${isOwned ? 'bg-[#1a1a1a] text-gray-500 cursor-default' : 'bg-[#e8e3d5] hover:bg-white text-black'} px-4 py-2 rounded-lg font-bold text-xs uppercase tracking-wide transition-colors`}
-                  >
-                    {isOwned ? 'Owned' : 'Buy'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          );
-        }) : (
-             <div className="col-span-full py-12 text-center text-gray-500 italic">No assets found matching "{searchQuery}"</div>
-        )}
-      </div>
-    </div>
-  );
-
-  const renderBetting = () => (
-    <div className="animate-in slide-in-from-right duration-500">
-      <h2 className="text-4xl font-black text-white italic mb-2">LIVE <span className="text-[#a9ddd3]">BETTING</span></h2>
-      <p className="text-gray-400 mb-8">Challenge players or bet against the house.</p>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        {/* P2P Challenges */}
-        <div className="lg:col-span-2">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xl font-bold flex items-center gap-2"><Users className="w-5 h-5 text-[#a9ddd3]" /> Open P2P Challenges</h3>
-            <button className="text-xs bg-[#111] hover:bg-[#222] px-3 py-1 rounded text-[#a9ddd3] border border-[#a9ddd3]/20">+ Create Challenge</button>
-          </div>
-          <div className="space-y-3">
-            {CHALLENGES.map((chal) => (
-              <div key={chal.id} className="bg-[#0a0a0a] border border-white/5 p-4 rounded-xl flex items-center justify-between hover:border-[#a9ddd3]/50 transition-colors">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-900 to-indigo-900 flex items-center justify-center text-xs font-bold">
-                    {chal.challenger.substring(0,2)}
-                  </div>
-                  <div>
-                    <div className="font-bold text-white">{chal.challenger}</div>
-                    <div className="text-xs text-gray-500">{chal.game} • {chal.mode}</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="text-right">
-                    <div className="text-xs text-gray-400">Stake</div>
-                    <div className="font-mono font-bold text-[#a9ddd3]">{chal.stake} RLO</div>
-                  </div>
-                  <button onClick={() => balance >= chal.stake ? alert('Challenge Accepted!') : setShowBuyModal(true)} className="bg-[#a9ddd3] hover:bg-white text-black px-4 py-2 rounded-lg font-bold text-xs uppercase">
-                    Accept
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* House Betting */}
-        <div className="bg-[#111] rounded-2xl p-6 border border-white/5 h-fit">
-          <h3 className="text-xl font-bold flex items-center gap-2 mb-6"><Dice5 className="w-5 h-5 text-purple-400" /> House Games</h3>
-          
-          <div className="mb-6 p-4 bg-[#0a0a0a] rounded-xl border border-white/5">
-            <div className="flex justify-between mb-2">
-              <span className="text-sm font-bold text-gray-300">Rialo Price Prediction</span>
-              <span className="text-xs text-green-400 font-mono">+180% Payout</span>
-            </div>
-            <p className="text-xs text-gray-500 mb-4">Will $RLO be above $1.20 in 5 mins?</p>
-            <div className="flex gap-2">
-              <button className="flex-1 bg-green-900/20 border border-green-500/50 text-green-400 py-2 rounded-lg font-bold text-xs hover:bg-green-900/40">HIGHER</button>
-              <button className="flex-1 bg-red-900/20 border border-red-500/50 text-red-400 py-2 rounded-lg font-bold text-xs hover:bg-red-900/40">LOWER</button>
-            </div>
-          </div>
-
-          <div className="p-4 bg-[#0a0a0a] rounded-xl border border-white/5">
-            <div className="flex justify-between mb-2">
-              <span className="text-sm font-bold text-gray-300">Coin Flip</span>
-              <span className="text-xs text-[#a9ddd3] font-mono">Double or Nothing</span>
-            </div>
-            <div className="flex gap-2 mt-4">
-              <button className="flex-1 bg-white/5 border border-white/10 text-white py-2 rounded-lg font-bold text-xs hover:bg-white/10">HEADS</button>
-              <button className="flex-1 bg-white/5 border border-white/10 text-white py-2 rounded-lg font-bold text-xs hover:bg-white/10">TAILS</button>
-            </div>
-          </div>
-        </div>
-
-      </div>
-    </div>
-  );
-
-  const renderAccount = () => (
-    <div className="animate-in fade-in zoom-in duration-500 max-w-4xl mx-auto">
-      <div className="bg-[#111] border border-white/10 rounded-3xl p-8 mb-8">
-        <div className="flex items-center gap-6 mb-8">
-          <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-[#a9ddd3] to-[#e8e3d5] flex items-center justify-center text-black shadow-2xl shadow-[#a9ddd3]/20 relative">
-            <User className="w-12 h-12" />
-          </div>
-          <div>
-            <div className="flex items-center gap-3">
-                <h2 className="text-3xl font-black text-white">{username}</h2>
-                <button onClick={() => setShowUsernameModal(true)} className="text-gray-500 hover:text-white"><Edit3 className="w-4 h-4" /></button>
-            </div>
-            <p className="text-gray-400">Level 0 • R-CADE Member</p>
-            {walletConnected && <p className="text-xs text-[#a9ddd3] font-mono mt-1">{walletAddress}</p>}
-          </div>
-          <div className="ml-auto text-right">
-            <p className="text-sm text-gray-500 uppercase font-bold">Total Net Worth</p>
-            <h3 className="text-4xl font-black text-[#e8e3d5]">${netWorth.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</h3>
-            <p className="text-xs text-[#a9ddd3]">≈ {rloBalance.toLocaleString()} RLO + Assets</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          <div className="bg-[#0a0a0a] p-4 rounded-xl border border-white/5 relative">
-            <p className="text-gray-500 text-xs uppercase font-bold mb-1">Liquid Funds</p>
-            <p className="text-2xl font-bold text-white">{rloBalance.toLocaleString()} <span className="text-sm text-[#a9ddd3]">RLO</span></p>
-            {walletConnected && (
-              <p className="text-xs text-green-400 mt-1 flex items-center gap-1">
-                <Coins className="w-3 h-3" /> {ethBalance} ETH
-              </p>
-            )}
-            <button 
-                onClick={() => setShowBuyModal(true)} 
-                className="absolute top-4 right-4 bg-[#a9ddd3] hover:bg-white text-black font-bold text-xs px-3 py-1 rounded-lg flex items-center gap-1 transition-colors"
-            >
-                <PlusCircle className="w-3 h-3" /> TOP UP
-            </button>
-          </div>
-          <div className="bg-[#0a0a0a] p-4 rounded-xl border border-white/5">
-            <p className="text-gray-500 text-xs uppercase font-bold mb-1">Asset Value</p>
-            <p className="text-2xl font-bold text-white">
-                {ASSETS.filter(a => inventory.includes(a.id)).length} <span className="text-sm text-[#a9ddd3]">Items</span>
-            </p>
-            <p className="text-xs text-gray-600 mt-1">
-                Value: {ASSETS.filter(a => inventory.includes(a.id)).reduce((acc, curr) => acc + curr.price, 0).toLocaleString()} RLO
-            </p>
-          </div>
-          <div className="bg-[#0a0a0a] p-4 rounded-xl border border-white/5">
-            <p className="text-gray-500 text-xs uppercase font-bold mb-1">Performance</p>
-            <p className={`text-2xl font-bold ${performance >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {performance >= 0 ? '+' : ''}{performance}%
-            </p>
-            <p className="text-xs text-gray-600 mt-1">All Time</p>
-          </div>
-        </div>
-
-        <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2"><PieChart className="w-5 h-5 text-[#a9ddd3]" /> My Assets</h3>
-        {inventory.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            {ASSETS.filter(a => inventory.includes(a.id)).map((asset) => (
-                <div key={asset.id} className="flex items-center gap-3 bg-[#0a0a0a] p-3 rounded-xl border border-white/5 hover:border-[#a9ddd3]/30 transition-colors">
-                <img src={asset.image} className="w-12 h-12 object-contain bg-[#111] rounded-lg p-1" alt={asset.name} />
-                <div>
-                    <p className="font-bold text-sm text-white">{asset.name}</p>
-                    <p className="text-xs text-gray-500">{asset.type} • {asset.rarity}</p>
-                </div>
-                </div>
-            ))}
-            </div>
-        ) : (
-            <div className="text-gray-500 italic mb-8 p-4 bg-[#0a0a0a] rounded-xl border border-white/5 text-center">No assets purchased yet. Visit the Market!</div>
-        )}
-
-        <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2"><History className="w-5 h-5 text-[#a9ddd3]" /> Recent Activity</h3>
-        <div className="space-y-2">
-            {activityLog.length > 0 ? activityLog.map((item) => (
-                <div key={item.id} className="flex items-center justify-between bg-[#0a0a0a] p-3 rounded-xl border border-white/5 text-sm">
-                    <div className="flex items-center gap-3">
-                        <div className={`w-2 h-2 rounded-full ${item.type === 'win' ? 'bg-green-500' : item.type === 'loss' ? 'bg-red-500' : item.type === 'purchase' ? 'bg-blue-500' : 'bg-purple-500'}`}></div>
-                        <span className="text-gray-300">{item.text}</span>
-                    </div>
-                    <span className="font-mono text-gray-500">{item.time}</span>
-                </div>
-            )) : (
-                <div className="text-gray-500 italic p-3 text-center">No recent activity.</div>
-            )}
-        </div>
-      </div>
-    </div>
-  );
 
   return (
     <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-[#a9ddd3] selection:text-black overflow-x-hidden">
@@ -901,7 +579,78 @@ export default function RCade() {
         {currentView === 'games' && renderGames()}
         {currentView === 'market' && renderMarketplace()}
         {currentView === 'betting' && renderBetting()}
-        {currentView === 'account' && renderAccount()}
+        {currentView === 'account' && (
+            <div className="animate-in fade-in zoom-in duration-500 max-w-4xl mx-auto">
+              <div className="bg-[#111] border border-white/10 rounded-3xl p-8 mb-8">
+                <div className="flex items-center gap-6 mb-8">
+                  <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-[#a9ddd3] to-[#e8e3d5] flex items-center justify-center text-black shadow-2xl shadow-[#a9ddd3]/20 relative">
+                    <User className="w-12 h-12" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-3">
+                        <h2 className="text-3xl font-black text-white">{username}</h2>
+                        <button onClick={() => setShowUsernameModal(true)} className="text-gray-500 hover:text-white"><Edit3 className="w-4 h-4" /></button>
+                    </div>
+                    <p className="text-gray-400">Level 0 • R-CADE Member</p>
+                    {walletConnected && <p className="text-xs text-[#a9ddd3] font-mono mt-1">{walletAddress}</p>}
+                  </div>
+                  <div className="ml-auto text-right">
+                    <p className="text-sm text-gray-500 uppercase font-bold">Total Net Worth</p>
+                    <h3 className="text-4xl font-black text-[#e8e3d5]">${netWorth.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</h3>
+                    <p className="text-xs text-[#a9ddd3]">≈ {rloBalance.toLocaleString()} RLO</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                  <div className="bg-[#0a0a0a] p-4 rounded-xl border border-white/5 relative">
+                    <p className="text-gray-500 text-xs uppercase font-bold mb-1">Liquid Funds</p>
+                    <p className="text-2xl font-bold text-white">{rloBalance.toLocaleString()} <span className="text-sm text-[#a9ddd3]">RLO</span></p>
+                    {walletConnected && (
+                      <p className="text-xs text-green-400 mt-1 flex items-center gap-1">
+                        <Coins className="w-3 h-3" /> {ethBalance} ETH
+                      </p>
+                    )}
+                    <button 
+                        onClick={() => setShowBuyModal(true)} 
+                        className="absolute top-4 right-4 bg-[#a9ddd3] hover:bg-white text-black font-bold text-xs px-3 py-1 rounded-lg flex items-center gap-1 transition-colors"
+                    >
+                        <PlusCircle className="w-3 h-3" /> TOP UP
+                    </button>
+                  </div>
+                  <div className="bg-[#0a0a0a] p-4 rounded-xl border border-white/5">
+                    <p className="text-gray-500 text-xs uppercase font-bold mb-1">Asset Value</p>
+                    <p className="text-2xl font-bold text-white">
+                        {ASSETS.filter(a => inventory.includes(a.id)).length} <span className="text-sm text-[#a9ddd3]">Items</span>
+                    </p>
+                  </div>
+                  <div className="bg-[#0a0a0a] p-4 rounded-xl border border-white/5">
+                    <p className="text-gray-500 text-xs uppercase font-bold mb-1">Performance</p>
+                    <p className={`text-2xl font-bold ${performance >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {performance >= 0 ? '+' : ''}{performance}%
+                    </p>
+                    <p className="text-xs text-gray-600 mt-1">All Time</p>
+                  </div>
+                </div>
+
+                <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2"><PieChart className="w-5 h-5 text-[#a9ddd3]" /> My Assets</h3>
+                {inventory.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                    {ASSETS.filter(a => inventory.includes(a.id)).map((asset) => (
+                        <div key={asset.id} className="flex items-center gap-3 bg-[#0a0a0a] p-3 rounded-xl border border-white/5 hover:border-[#a9ddd3]/30 transition-colors">
+                        <img src={asset.image} className="w-12 h-12 object-contain bg-[#111] rounded-lg p-1" alt={asset.name} />
+                        <div>
+                            <p className="font-bold text-sm text-white">{asset.name}</p>
+                            <p className="text-xs text-gray-500">{asset.type} • {asset.rarity}</p>
+                        </div>
+                        </div>
+                    ))}
+                    </div>
+                ) : (
+                    <div className="text-gray-500 italic mb-8 p-4 bg-[#0a0a0a] rounded-xl border border-white/5 text-center">No assets purchased yet. Visit the Market!</div>
+                )}
+              </div>
+            </div>
+        )}
 
         {/* --- Live Ticker --- */}
         <div className="mt-24 border-t border-white/5 pt-8 overflow-hidden relative">
