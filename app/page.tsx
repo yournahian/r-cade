@@ -6,7 +6,8 @@ import {
   ChevronRight, Crown, Medal, ExternalLink, PieChart, History, Check, Loader2, 
   CreditCard, AlertTriangle, Edit3, PlusCircle, RefreshCw
 } from 'lucide-react';
-// ethers imported dynamically inside functions
+// ✅ STATIC IMPORT: Works in Codespaces/Vercel (Ignore preview error)
+import { ethers } from 'ethers'; 
 
 // --- Web3 Config ---
 const TESTNET_CHAIN_ID_HEX = '0x14a34'; // Base Sepolia (84532)
@@ -23,6 +24,7 @@ const CONTRACT_ABI = [
 
 // --- Constants ---
 const GAME_COST = 50; 
+// Rate: 100 RLO = 0.0004 ETH
 const ETH_PER_RLO = 0.000004; 
 
 // --- Data ---
@@ -76,6 +78,13 @@ const GAMES = [
   { id: 6, title: "Real Estate Tycoon", category: "Sim", players: "15k", image: "https://placehold.co/400x300/14532d/86efac?text=RE+Tycoon", payout: "x500", cost: 0, link: "#", isExternal: false },
 ];
 
+const TOP_PLAYERS = [
+  { rank: 1, name: "CryptoKing_99", score: "1,250,000", game: "Rialo Defender", avatar: "CK", color: "from-yellow-400 to-orange-500" },
+  { rank: 2, name: "LogicMaster", score: "50,200", game: "Zip Zap Puzzle", avatar: "LM", color: "from-purple-500 to-pink-500" },
+  { rank: 3, name: "SpeedDemon", score: "850,500", game: "KOPPPPP", avatar: "SD", color: "from-orange-700 to-orange-800" },
+  { rank: 4, name: "PixelHunter", score: "720,000", game: "Rialo Defender", avatar: "PH", color: "from-blue-500 to-indigo-600" },
+];
+
 const ASSETS = [
   { id: 1, name: "Gold Plating", type: "Skin", price: 500, image: "https://placehold.co/200x200/d4af37/000?text=Gold+Skin", rarity: "Legendary" },
   { id: 2, name: "Plasma Cannon", type: "Weapon", price: 1200, image: "https://placehold.co/200x200/ef4444/fff?text=Plasma", rarity: "Epic" },
@@ -87,13 +96,6 @@ const CHALLENGES = [
   { id: 1, challenger: "LogicMaster", game: "Zip Zap Puzzle", stake: 50, mode: "Time Attack" },
   { id: 2, challenger: "RWA_Whale", game: "Rialo Defender", stake: 1000, mode: "High Score" },
   { id: 3, challenger: "SpeedDemon", game: "R-Racers", stake: 500, mode: "Race" },
-];
-
-const TOP_PLAYERS = [
-  { rank: 1, name: "CryptoKing_99", score: "1,250,000", game: "Rialo Defender", avatar: "CK", color: "from-yellow-400 to-orange-500" },
-  { rank: 2, name: "LogicMaster", score: "50,200", game: "Zip Zap Puzzle", avatar: "LM", color: "from-purple-500 to-pink-500" },
-  { rank: 3, name: "SpeedDemon", score: "850,500", game: "KOPPPPP", avatar: "SD", color: "from-orange-700 to-orange-800" },
-  { rank: 4, name: "PixelHunter", score: "720,000", game: "Rialo Defender", avatar: "PH", color: "from-blue-500 to-indigo-600" },
 ];
 
 const CATEGORIES = [
@@ -133,7 +135,6 @@ export default function RCade() {
   const [walletError, setWalletError] = useState("");
 
   // Persistent State (Local)
-  const [balance, setBalance] = useState(0); 
   const [inventory, setInventory] = useState<number[]>([]); 
   const [activityLog, setActivityLog] = useState<ActivityLogItem[]>([]);
   const [showBuyModal, setShowBuyModal] = useState(false);
@@ -156,7 +157,6 @@ export default function RCade() {
     const savedLog = localStorage.getItem('rcade_activity');
     if (savedLog) setActivityLog(JSON.parse(savedLog));
     
-    // Check wallet connection
     const savedWallet = localStorage.getItem('rcade_wallet_addr');
     if (savedWallet) {
         setWalletConnected(true);
@@ -164,7 +164,6 @@ export default function RCade() {
         fetchEthBalance(savedWallet);
         updateRloBalance(savedWallet); 
         
-        // Load username
         const savedUser = localStorage.getItem(`rcade_user_${savedWallet}`);
         if (savedUser) {
             setUsername(savedUser);
@@ -173,9 +172,6 @@ export default function RCade() {
             setUsername(randName);
             localStorage.setItem(`rcade_user_${savedWallet}`, randName);
         }
-    } else {
-        // Explicitly set balance to 0 if no wallet is connected
-        setRloBalance(0);
     }
 
     const generatedTicker = [...Array(10)].map((_, i) => ({
@@ -187,7 +183,7 @@ export default function RCade() {
     setTickerItems(generatedTicker);
   }, []);
 
-  // Recalculate Performance & Net Worth
+  // Performance Logic
   useEffect(() => {
     const MOCK_USD_PER_RLO = 0.012; 
     
@@ -236,12 +232,9 @@ export default function RCade() {
   const fetchEthBalance = async (address: string) => {
     if (typeof window !== 'undefined' && (window as any).ethereum) {
         try {
-            const balanceHex = await (window as any).ethereum.request({
-                method: 'eth_getBalance',
-                params: [address, 'latest'],
-            });
-            const balanceWei = parseInt(balanceHex, 16);
-            setEthBalance((balanceWei / 1e18).toFixed(4));
+            const provider = new ethers.BrowserProvider((window as any).ethereum);
+            const balance = await provider.getBalance(address);
+            setEthBalance(ethers.formatEther(balance));
         } catch (err) {
             console.error("Failed to fetch ETH balance", err);
         }
@@ -250,18 +243,23 @@ export default function RCade() {
 
   const updateRloBalance = async (address: string) => {
       try {
-          const { ethers } = await import('ethers');
           if (typeof window !== 'undefined' && (window as any).ethereum) {
               const provider = new ethers.BrowserProvider((window as any).ethereum);
+              // Simple provider is enough for read-only calls
               const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+              
+              console.log("Fetching RLO balance for:", address);
               const rawBalance = await contract.balanceOf(address);
+              console.log("Raw Balance:", rawBalance.toString());
+              
               const formatted = ethers.formatUnits(rawBalance, 18);
               const val = Math.floor(parseFloat(formatted));
+              
               setRloBalance(val);
               return val;
           }
       } catch (e) {
-          console.error("Failed to fetch RLO from contract", e);
+          console.error("Failed to fetch RLO from contract:", e);
       }
       return 0;
   };
@@ -291,7 +289,8 @@ export default function RCade() {
 
     if (typeof window !== 'undefined' && (window as any).ethereum) {
         try {
-            const accounts = await (window as any).ethereum.request({ method: 'eth_requestAccounts' });
+            const provider = new ethers.BrowserProvider((window as any).ethereum);
+            const accounts = await provider.send("eth_requestAccounts", []);
             await switchToBaseSepolia();
             
             if (accounts.length > 0) {
@@ -300,6 +299,7 @@ export default function RCade() {
                 setWalletAddress(address);
                 localStorage.setItem('rcade_wallet_addr', address);
                 
+                // Username logic
                 const savedUser = localStorage.getItem(`rcade_user_${address}`);
                 if (!savedUser) {
                      const randName = `Player_${Math.floor(Math.random() * 10000)}`;
@@ -350,8 +350,7 @@ export default function RCade() {
     if (typeof window !== 'undefined' && (window as any).ethereum) {
         try {
             await switchToBaseSepolia();
-            const { ethers } = await import('ethers');
-
+            
             const costETH = (amount * ETH_PER_RLO).toFixed(7);
 
             const provider = new ethers.BrowserProvider((window as any).ethereum);
@@ -362,47 +361,36 @@ export default function RCade() {
                 value: ethers.parseEther(costETH),
                 gasLimit: 300000 
             });
-            console.log("Mint Tx:", tx.hash);
+            console.log("Mint Tx Hash:", tx.hash);
             
-            await tx.wait();
+            await tx.wait(); // Wait for confirmation on-chain
 
             alert(`Successfully minted ${amount} RLO!`);
             
-            // Poll for update
+            // Poll for update to ensure UI reflects chain state
             let attempts = 0;
-            const maxAttempts = 5;
-            const currentBal = rloBalance;
-            
             const pollInterval = setInterval(async () => {
                 attempts++;
                 const newBal = await updateRloBalance(walletAddress);
                 await fetchEthBalance(walletAddress);
-                
-                if (newBal !== undefined && newBal > currentBal) {
-                    clearInterval(pollInterval);
-                    logActivity(`Minted ${amount} RLO`, 'win');
-                    setIsProcessing(false);
-                    setShowBuyModal(false);
-                } else if (attempts >= maxAttempts) {
-                    clearInterval(pollInterval);
-                    setIsProcessing(false);
-                    setShowBuyModal(false);
-                }
+                if (attempts > 5) clearInterval(pollInterval);
             }, 3000);
+
+            logActivity(`Minted ${amount} RLO`, 'win');
+            setShowBuyModal(false);
 
         } catch (error: any) {
             console.error(error);
-            setIsProcessing(false);
             if (error.code === 4001 || error?.info?.error?.code === 4001) {
                 alert("Transaction rejected.");
             } else {
-                alert(`Transaction Failed: ${error.reason || "Check Balance & Network"}`);
+                alert(`Transaction Failed: ${error.reason || "Check network/balance"}`);
             }
         }
     } else {
         alert("Wallet not found.");
-        setIsProcessing(false);
     }
+    setIsProcessing(false);
   };
 
   const handlePlayGame = async (cost: number, link: string, isExternal: boolean) => {
@@ -420,7 +408,6 @@ export default function RCade() {
 
       setIsProcessing(true);
       try {
-        const { ethers } = await import('ethers');
         const provider = new ethers.BrowserProvider((window as any).ethereum);
         const signer = await provider.getSigner();
         const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
@@ -462,7 +449,6 @@ export default function RCade() {
     if (rloBalance >= asset.price) {
         try {
             setIsProcessing(true);
-            const { ethers } = await import('ethers');
             const provider = new ethers.BrowserProvider((window as any).ethereum);
             const signer = await provider.getSigner();
             const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
@@ -522,8 +508,7 @@ export default function RCade() {
     ? ASSETS.filter(a => a.name.toLowerCase().includes(searchQuery.toLowerCase()))
     : [];
 
-  // --- Sub-Render Functions ---
-
+  // --- Render Sections ---
   const renderGames = () => (
     <>
       <div className="relative w-full h-[500px] rounded-[2rem] overflow-hidden mb-12 group border border-white/10 shadow-2xl shadow-black">
@@ -692,6 +677,8 @@ export default function RCade() {
       <p className="text-gray-400 mb-8">Challenge players or bet against the house.</p>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        
+        {/* P2P Challenges */}
         <div className="lg:col-span-2">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xl font-bold flex items-center gap-2"><Users className="w-5 h-5 text-[#a9ddd3]" /> Open P2P Challenges</h3>
@@ -723,8 +710,10 @@ export default function RCade() {
           </div>
         </div>
 
+        {/* House Betting */}
         <div className="bg-[#111] rounded-2xl p-6 border border-white/5 h-fit">
           <h3 className="text-xl font-bold flex items-center gap-2 mb-6"><Dice5 className="w-5 h-5 text-purple-400" /> House Games</h3>
+          
           <div className="mb-6 p-4 bg-[#0a0a0a] rounded-xl border border-white/5">
             <div className="flex justify-between mb-2">
               <span className="text-sm font-bold text-gray-300">Rialo Price Prediction</span>
@@ -736,6 +725,7 @@ export default function RCade() {
               <button className="flex-1 bg-red-900/20 border border-red-500/50 text-red-400 py-2 rounded-lg font-bold text-xs hover:bg-red-900/40">LOWER</button>
             </div>
           </div>
+
           <div className="p-4 bg-[#0a0a0a] rounded-xl border border-white/5">
             <div className="flex justify-between mb-2">
               <span className="text-sm font-bold text-gray-300">Coin Flip</span>
@@ -747,6 +737,7 @@ export default function RCade() {
             </div>
           </div>
         </div>
+
       </div>
     </div>
   );
@@ -768,6 +759,7 @@ export default function RCade() {
           </div>
           <div className="ml-auto text-right">
             <p className="text-sm text-gray-500 uppercase font-bold">Total Net Worth</p>
+            {/* Dynamic Net Worth Calculation */}
             <h3 className="text-4xl font-black text-[#e8e3d5]">${netWorth.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</h3>
             <p className="text-xs text-[#a9ddd3]">≈ {rloBalance.toLocaleString()} RLO + Assets</p>
           </div>
@@ -793,6 +785,9 @@ export default function RCade() {
             <p className="text-gray-500 text-xs uppercase font-bold mb-1">Asset Value</p>
             <p className="text-2xl font-bold text-white">
                 {ASSETS.filter(a => inventory.includes(a.id)).length} <span className="text-sm text-[#a9ddd3]">Items</span>
+            </p>
+            <p className="text-xs text-gray-600 mt-1">
+                Value: {ASSETS.filter(a => inventory.includes(a.id)).reduce((acc, curr) => acc + curr.price, 0).toLocaleString()} RLO
             </p>
           </div>
           <div className="bg-[#0a0a0a] p-4 rounded-xl border border-white/5">
@@ -1017,7 +1012,6 @@ export default function RCade() {
                 ].map((opt) => (
                   <button 
                     key={opt.amount}
-                    // FIX: Pass only 'amount'. Cost is calculated internally.
                     onClick={() => handleBuyTokens(opt.amount)}
                     className="w-full flex items-center justify-between bg-[#0a0a0a] hover:bg-[#222] border border-white/5 hover:border-[#a9ddd3] p-4 rounded-xl transition-all group"
                   >
